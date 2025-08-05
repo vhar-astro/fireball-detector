@@ -7,10 +7,10 @@ from src.model import NightSkyCNN
 
 class Classifier:
     def __init__(self, model_path='night_sky_model.pth'):
-        self.model = NightSkyCNN(num_classes=4)
+        self.model = NightSkyCNN(num_classes=3)
         self.model.load_state_dict(torch.load(model_path))
         self.model.eval()
-        self.classes = ['fireballs', 'meteors', 'no_fireballs', 'trash']
+        self.classes = ['fireballs', 'meteors', 'no_fireballs']
 
     def classify_image(self, image_path):
         """Classifies a single image and returns the class name."""
