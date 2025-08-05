@@ -31,7 +31,7 @@ def main():
     print(f"Processing images in: {args.data_dir}")
 
     # Create output directories
-    for class_name in ['fireballs', 'meteors', 'no_fireballs']:
+    for class_name in ['fireballs', 'meteors', 'no_fireballs', 'trash']:
         os.makedirs(os.path.join(args.data_dir, class_name), exist_ok=True)
 
     # Classify and move images
@@ -39,7 +39,7 @@ def main():
         if fname.lower().endswith(".jpg"):
             image_path = os.path.join(args.data_dir, fname)
             prediction = classify_image(model, image_path)
-            class_name = ['fireballs', 'meteors', 'no_fireballs'][prediction]
+            class_name = ['fireballs', 'meteors', 'no_fireballs', 'trash'][prediction]
             dest_path = os.path.join(args.data_dir, class_name, fname)
             os.rename(image_path, dest_path)
             print(f"Moved {fname} to {class_name}")
