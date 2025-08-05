@@ -1,0 +1,369 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Project and Environment Setup",
+        "description": "Initialize the project repository, create a standard directory structure, and set up the Python virtual environment for the project.",
+        "details": "Create a `requirements.txt` file listing all necessary dependencies, including PyTorch, torchvision, and Pillow. Initialize a Git repository for version control.",
+        "testStrategy": "Verify that the virtual environment can be created and dependencies can be installed successfully using `pip install -r requirements.txt`.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Develop API Endpoints for User Profile Management",
+            "description": "Create and implement the backend API endpoints required for creating, retrieving, updating, and deleting user profiles.",
+            "dependencies": [],
+            "details": "Implement RESTful endpoints: POST /api/users, GET /api/users/{id}, PUT /api/users/{id}, DELETE /api/users/{id}. Use a database model for the user profile including fields like 'username', 'email', 'fullName', and 'creationDate'. Ensure proper input validation and error handling for all endpoints. Secure the endpoints using token-based authentication.",
+            "status": "done",
+            "testStrategy": "Write unit tests for the controller and service layers to verify business logic. Use integration tests to validate the full request/response cycle for each endpoint, including database interactions. Test edge cases like invalid input, non-existent user IDs, and unauthorized access attempts."
+          },
+          {
+            "id": 2,
+            "title": "Build Frontend User Profile Page",
+            "description": "Develop the user interface for displaying and editing a user's profile information, consuming the API endpoints from the first subtask.",
+            "dependencies": [],
+            "details": "Create a new route and component for '/profile/{id}'. The page should fetch user data from the GET /api/users/{id} endpoint upon loading. Display the user information in a clear, readable format. Include an 'Edit' button that enables a form to update the user's data. The form submission should call the PUT /api/users/{id} endpoint. Handle API responses to show success or error notifications to the user.",
+            "status": "done",
+            "testStrategy": "Perform manual UI testing to ensure the layout is responsive and all interactive elements work as expected. Write end-to-end tests using a framework like Cypress or Playwright to simulate a user viewing their profile, entering edit mode, changing data, and saving the changes. Mock the API endpoints to test the frontend component in isolation."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Develop Data Loading and Preprocessing Module",
+        "description": "Create a Python module to handle loading and preprocessing of the training images. This module will prepare the data for consumption by the PyTorch model.",
+        "status": "done",
+        "dependencies": [
+          1
+        ],
+        "priority": "high",
+        "details": "The module must be able to load 1920x1080 RGB JPG images, apply necessary transformations (e.g., resizing, tensor conversion, normalization), and create PyTorch `Dataset` and `DataLoader` objects. It should also handle splitting the 300 sample images into training and validation sets.",
+        "testStrategy": "Confirm that the DataLoader produces batches of correctly shaped and normalized tensors without errors.",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create PyTorch Dataset class",
+            "description": "Implement a class that inherits from `torch.utils.data.Dataset` to load image file paths and labels from the `fireballs`, `meteors`, and `no_meteors` directories.",
+            "status": "done",
+            "dependencies": [],
+            "details": "The custom Dataset class should scan the subdirectories to build a list of image paths and their corresponding integer labels. The `__getitem__` method should load an image by its index, apply transformations, and return the image tensor and its label.",
+            "testStrategy": "Verify that the Dataset object can be instantiated and that `__getitem__` returns a tensor and a correct integer label for a given index."
+          },
+          {
+            "id": 2,
+            "title": "Define Image Transformations",
+            "description": "Create a composition of `torchvision.transforms` to resize images to a consistent input size (e.g., 224x224), convert them to PyTorch tensors, and normalize them using standard ImageNet statistics.",
+            "status": "done",
+            "dependencies": [
+              1
+            ],
+            "details": "Use `torchvision.transforms.Compose` to chain together `Resize`, `ToTensor`, and `Normalize`. This transform pipeline will be passed to the custom Dataset class during its initialization.",
+            "testStrategy": "Apply the transform pipeline to a sample image and check the output tensor's shape (e.g., `[3, 224, 224]`), data type, and value range to confirm it's ready for the model."
+          },
+          {
+            "id": 3,
+            "title": "Implement Data Splitting and DataLoaders",
+            "description": "Add logic to split the dataset into training and validation sets (e.g., 80/20 split). Create `torch.utils.data.DataLoader` instances for both sets to handle batching and shuffling.",
+            "status": "done",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Use `torch.utils.data.random_split` to divide the main dataset into training and validation subsets. Then, instantiate two `DataLoader` objects, one for each subset. The training DataLoader should have `shuffle=True`.",
+            "testStrategy": "Iterate through one batch of the training and validation DataLoaders. Confirm that each produces a batch of image tensors and a batch of label tensors with the correct dimensions."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Define CNN Model Architecture",
+        "description": "Design and implement the Convolutional Neural Network (CNN) architecture using the PyTorch framework.",
+        "status": "done",
+        "dependencies": [
+          1
+        ],
+        "priority": "high",
+        "details": "The model will be a Python class inheriting from `torch.nn.Module`. It must be designed to take preprocessed image tensors as input and output predictions for the three categories: 'fireballs', 'regular meteors', and 'no meteors'.",
+        "testStrategy": "Instantiate the model and pass a dummy tensor of the correct input shape through it to ensure the forward pass executes and produces an output tensor of the correct shape (batch_size, 3).",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Model File",
+            "description": "Create a new Python file at `src/model.py` to house the neural network architecture.",
+            "status": "done",
+            "dependencies": [],
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement CNN Architecture",
+            "description": "Define a class `NightSkyCNN` that inherits from `torch.nn.Module`. This class will contain the layers of the convolutional neural network (e.g., convolutional layers, ReLU activation, max pooling, and fully-connected layers).",
+            "status": "done",
+            "dependencies": [],
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Define Forward Pass",
+            "description": "Implement the `forward` method within the `NightSkyCNN` class to define the flow of data through the network layers.",
+            "status": "done",
+            "dependencies": [],
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Model Training Script",
+        "description": "Create a script to train the CNN model on the prepared dataset and save the resulting weights.",
+        "details": "The script will contain the training loop, define a loss function (e.g., CrossEntropyLoss) and an optimizer (e.g., Adam), and perform training for a set number of epochs. After training, it must save the trained model's state dictionary to a file (e.g., `model.pth`).",
+        "testStrategy": "Run the script and verify that training loss decreases over several epochs and that a model weight file is created upon completion.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Training Script File",
+            "description": "Create a new Python file at `src/train.py`.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Training Loop",
+            "description": "In `src/train.py`, write the main training loop that iterates through the training data for a specified number of epochs.",
+            "dependencies": [
+              1
+            ],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Define Loss Function and Optimizer",
+            "description": "Instantiate the loss function (e.g., `nn.CrossEntropyLoss`) and the optimizer (e.g., `torch.optim.Adam`).",
+            "dependencies": [
+              1
+            ],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Save Trained Model",
+            "description": "After the training loop is complete, save the trained model's state dictionary to a file named `night_sky_model.pth`.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Develop Command-Line Interface (CLI) Script",
+        "description": "Create the main Python script that serves as the command-line tool for image classification.",
+        "details": "Use Python's `argparse` module to implement a CLI that accepts exactly one argument: the absolute path to a directory of images. The script should include basic structure for file processing.",
+        "testStrategy": "Execute the script from the command line with a test path and verify that it correctly parses the argument and doesn't raise an error. Test with no arguments or too many arguments to ensure it fails gracefully.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create CLI script file",
+            "description": "Create a new Python file at `src/main.py`.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement argument parsing",
+            "description": "Use Python's `argparse` module to define and parse the command-line arguments.",
+            "dependencies": [
+              1
+            ],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement Directory Creation Logic",
+        "description": "Add functionality to the CLI script to create the required output subdirectories.",
+        "details": "Within the target directory provided via the command line, the script must create three subdirectories: `fireballs`, `meteors`, and `no_meteors`. This creation should only happen if they do not already exist.",
+        "testStrategy": "Run the script on a new empty directory and verify the three subdirectories are created. Run it again on the same directory to ensure no errors occur.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement directory creation logic",
+            "description": "Use `os.makedirs` with `exist_ok=True` to create the output directories.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement Image File Iteration Logic",
+        "description": "Add logic to the CLI script to find and iterate through the target image files.",
+        "details": "The script must iterate through every file with a `.jpg` extension located in the root of the specified directory. It must ignore files in subdirectories (including the newly created category folders) and files with other extensions.",
+        "testStrategy": "Create a test directory containing `.jpg` files, `.txt` files, and subdirectories with more `.jpg` files. Run the script and log the files it intends to process, verifying it only selects the root-level `.jpg` files.",
+        "priority": "medium",
+        "dependencies": [
+          5
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement image file iteration logic",
+            "description": "Use `os.listdir` and `fname.lower().endswith(\".jpg\")` to iterate through the image files.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Integrate Model for Inference",
+        "description": "Load the pre-trained PyTorch model into the CLI script and use it to predict the category for each image.",
+        "details": "The script will load the saved `model.pth` file. For each image being processed, it will apply the same preprocessing transformations used during training, perform a forward pass through the model, and determine the predicted class label.",
+        "testStrategy": "Pass a single test image through the inference function and verify that it returns one of the three expected category strings: 'fireballs', 'meteors', or 'no_meteors'.",
+        "priority": "high",
+        "dependencies": [
+          4,
+          5
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Load pre-trained model",
+            "description": "Load the saved `night_sky_model.pth` file into the model.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Preprocess images for inference",
+            "description": "Apply the same transformations used during training to the images that will be classified.",
+            "dependencies": [
+              1
+            ],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Perform model inference",
+            "description": "Perform a forward pass through the model to get the prediction.",
+            "dependencies": [
+              2
+            ],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Implement File Moving Functionality",
+        "description": "Move each processed image file into its corresponding category subfolder based on the model's prediction.",
+        "details": "After an image is classified by the model, use a library like `shutil` to move the image file from the source directory to the appropriate subfolder (`fireballs`, `meteors`, or `no_meteors`).",
+        "testStrategy": "Run the full script on a test directory with several images. Verify that all original `.jpg` files are gone from the root directory and are now located inside the correct category subdirectories.",
+        "priority": "high",
+        "dependencies": [
+          6,
+          7,
+          8
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement file moving logic",
+            "description": "Use `os.rename` to move the classified files to the correct subdirectories.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Finalize Documentation and Packaging",
+        "description": "Complete all project documentation, including setup and usage instructions, and finalize the `requirements.txt` file.",
+        "details": "Create a comprehensive `README.md` file that explains the project's purpose, how to install dependencies from `requirements.txt`, and the exact command to run the script. Perform a final end-to-end test of the entire workflow.",
+        "testStrategy": "Ask a colleague to clone the repository and follow the `README.md` instructions to set up and run the script. Confirm they can do so successfully without further assistance.",
+        "priority": "medium",
+        "dependencies": [
+          9
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create README.md file",
+            "description": "Create a `README.md` file with instructions on how to set up and run the project.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Finalize requirements.txt",
+            "description": "Ensure the `requirements.txt` file is up-to-date with all necessary dependencies.",
+            "dependencies": [],
+            "status": "done",
+            "details": "",
+            "testStrategy": ""
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-08-05T08:36:18.846Z",
+      "updated": "2025-08-05T10:41:26.310Z",
+      "description": "Tasks for master context"
+    }
+  }
+}
