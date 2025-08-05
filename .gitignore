@@ -32,3 +32,4 @@ venv/
 training_data/
 __pycache__/
 AI.zip
+night_sky_model.pth
