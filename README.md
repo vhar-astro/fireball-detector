@@ -1,6 +1,6 @@
 # Night Sky Image Classification
 
-This project uses a convolutional neural network (CNN) to classify images of the night sky into three categories: fireballs, meteors, and no meteors.
+This project uses a convolutional neural network (CNN) to classify images of the night sky into three categories: fireballs , meteors , and no meteors.
 
 ## Setup
 
