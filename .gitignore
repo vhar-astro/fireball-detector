@@ -65,3 +65,4 @@ build/classify_sky_cpu/localpycs/pyimod03_ctypes.pyc
 build/classify_sky_cpu/localpycs/struct.pyc
 dist/classify_sky_cpu
 classify_sky_cpu.spec
+.gemini/settings.json
