@@ -62,3 +62,4 @@ This project can be packaged into a single executable file using PyInstaller.
     ```bash
     pyinstaller --name classify_sky_watcher --onefile --add-data "night_sky_model.pth:." run.py
     ```
+=======
