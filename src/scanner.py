@@ -10,7 +10,7 @@ from src.main import Classifier
 from src.watcher import send_telegram_notification
 
 GLOB_PATTERN = "cam[0-8][0-9]/[0-9][0-9][0-9][0-9]/[0-9][0-9][0-9][0-9][0-9][0-9]/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/**/*.jpg"
-STATE_FILE = ".taskmaster/processed_files.log"
+STATE_FILE = "processed_files.log"
 
 # --- Logging Configuration ---
 LOG_DIR = Path("logs")
