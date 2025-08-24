@@ -13,21 +13,51 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Develop API Endpoints for User Profile Management",
-            "description": "Create and implement the backend API endpoints required for creating, retrieving, updating, and deleting user profiles.",
+            "title": "Initialize Git Repository",
+            "description": "Create a new Git repository in the project's root directory to enable version control for all project files.",
             "dependencies": [],
-            "details": "Implement RESTful endpoints: POST /api/users, GET /api/users/{id}, PUT /api/users/{id}, DELETE /api/users/{id}. Use a database model for the user profile including fields like 'username', 'email', 'fullName', and 'creationDate'. Ensure proper input validation and error handling for all endpoints. Secure the endpoints using token-based authentication.",
+            "details": "Navigate to the root directory of the project in the terminal and execute the `git init` command.",
             "status": "done",
-            "testStrategy": "Write unit tests for the controller and service layers to verify business logic. Use integration tests to validate the full request/response cycle for each endpoint, including database interactions. Test edge cases like invalid input, non-existent user IDs, and unauthorized access attempts."
+            "testStrategy": "Verify the existence of a hidden `.git` directory in the project's root folder."
           },
           {
             "id": 2,
-            "title": "Build Frontend User Profile Page",
-            "description": "Develop the user interface for displaying and editing a user's profile information, consuming the API endpoints from the first subtask.",
+            "title": "Create Standard Directory Structure",
+            "description": "Establish a conventional folder structure to organize source code, data, tests, and other project assets.",
             "dependencies": [],
-            "details": "Create a new route and component for '/profile/{id}'. The page should fetch user data from the GET /api/users/{id} endpoint upon loading. Display the user information in a clear, readable format. Include an 'Edit' button that enables a form to update the user's data. The form submission should call the PUT /api/users/{id} endpoint. Handle API responses to show success or error notifications to the user.",
+            "details": "Create the following directories in the project root: `src/` for main application code, `data/` for images, `tests/` for test scripts, and `notebooks/` for exploratory work.",
             "status": "done",
-            "testStrategy": "Perform manual UI testing to ensure the layout is responsive and all interactive elements work as expected. Write end-to-end tests using a framework like Cypress or Playwright to simulate a user viewing their profile, entering edit mode, changing data, and saving the changes. Mock the API endpoints to test the frontend component in isolation."
+            "testStrategy": "Confirm that the `src`, `data`, `tests`, and `notebooks` directories have been created at the top level of the project."
+          },
+          {
+            "id": 3,
+            "title": "Create Python Virtual Environment",
+            "description": "Set up an isolated Python environment for the project to manage its dependencies independently.",
+            "dependencies": [],
+            "details": "From the project's root directory, run the command `python3 -m venv venv` to create a virtual environment named 'venv'.",
+            "status": "done",
+            "testStrategy": "Check for the creation of the `venv` directory containing Python interpreter binaries and libraries."
+          },
+          {
+            "id": 4,
+            "title": "Define Dependencies in requirements.txt",
+            "description": "Create a `requirements.txt` file and list all necessary Python packages for the project, including PyTorch, torchvision, and Pillow.",
+            "dependencies": [],
+            "details": "Create a new file named `requirements.txt` in the project root. Add the lines `torch`, `torchvision`, and `Pillow` to this file.",
+            "status": "done",
+            "testStrategy": "Inspect the contents of `requirements.txt` to ensure it exists and lists the three required packages."
+          },
+          {
+            "id": 5,
+            "title": "Install Dependencies into Virtual Environment",
+            "description": "Install all the packages specified in the `requirements.txt` file into the newly created virtual environment.",
+            "dependencies": [
+              "1.3",
+              "1.4"
+            ],
+            "details": "First, activate the virtual environment (e.g., `source venv/bin/activate`). Then, run the command `pip install -r requirements.txt`.",
+            "status": "done",
+            "testStrategy": "After the installation command completes, run `pip freeze` within the activated environment and verify that `torch`, `torchvision`, and `Pillow` are listed in the output."
           }
         ]
       },
@@ -45,35 +75,55 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Create PyTorch Dataset class",
-            "description": "Implement a class that inherits from `torch.utils.data.Dataset` to load image file paths and labels from the `fireballs`, `meteors`, and `no_meteors` directories.",
-            "status": "done",
+            "title": "Implement File Path Collection and Splitting",
+            "description": "Create a function that scans a directory for all 300 sample .jpg images and splits the resulting list of file paths into training and validation sets using a fixed ratio (e.g., 80/20).",
             "dependencies": [],
-            "details": "The custom Dataset class should scan the subdirectories to build a list of image paths and their corresponding integer labels. The `__getitem__` method should load an image by its index, apply transformations, and return the image tensor and its label.",
-            "testStrategy": "Verify that the Dataset object can be instantiated and that `__getitem__` returns a tensor and a correct integer label for a given index."
+            "details": "The function should accept a root directory path. It will be responsible for locating all image files and then partitioning the list. Use a fixed random seed for reproducibility of the split.",
+            "status": "done",
+            "testStrategy": "Verify that the function returns two disjoint lists of file paths and that their total count is 300."
           },
           {
             "id": 2,
-            "title": "Define Image Transformations",
-            "description": "Create a composition of `torchvision.transforms` to resize images to a consistent input size (e.g., 224x224), convert them to PyTorch tensors, and normalize them using standard ImageNet statistics.",
+            "title": "Define Image Transformation Pipeline",
+            "description": "Define a `torchvision.transforms.Compose` object that contains the sequence of transformations for preprocessing the images.",
+            "dependencies": [],
+            "details": "The pipeline must resize the 1920x1080 images to a square dimension (e.g., 224x224), convert the image to a PyTorch tensor, and normalize the tensor's channels using standard mean and deviation values.",
             "status": "done",
-            "dependencies": [
-              1
-            ],
-            "details": "Use `torchvision.transforms.Compose` to chain together `Resize`, `ToTensor`, and `Normalize`. This transform pipeline will be passed to the custom Dataset class during its initialization.",
-            "testStrategy": "Apply the transform pipeline to a sample image and check the output tensor's shape (e.g., `[3, 224, 224]`), data type, and value range to confirm it's ready for the model."
+            "testStrategy": "Apply the transform to a sample image and check that the output tensor has the correct shape, data type, and value range."
           },
           {
             "id": 3,
-            "title": "Implement Data Splitting and DataLoaders",
-            "description": "Add logic to split the dataset into training and validation sets (e.g., 80/20 split). Create `torch.utils.data.DataLoader` instances for both sets to handle batching and shuffling.",
-            "status": "done",
+            "title": "Implement Custom PyTorch Dataset Class",
+            "description": "Create a class inheriting from `torch.utils.data.Dataset` that handles loading a single image from a file path and applying the defined transformations.",
             "dependencies": [
-              1,
-              2
+              "2.2"
             ],
-            "details": "Use `torch.utils.data.random_split` to divide the main dataset into training and validation subsets. Then, instantiate two `DataLoader` objects, one for each subset. The training DataLoader should have `shuffle=True`.",
-            "testStrategy": "Iterate through one batch of the training and validation DataLoaders. Confirm that each produces a batch of image tensors and a batch of label tensors with the correct dimensions."
+            "details": "The class constructor should accept a list of file paths and a transform object. The `__getitem__` method will open an image file (e.g., using Pillow), convert it to RGB, apply the transform, and return the resulting tensor and a placeholder label.",
+            "status": "done",
+            "testStrategy": "Instantiate the class with a small list of test images and the transform from subtask 2.2. Fetch a few items and verify the output tensor's shape and type."
+          },
+          {
+            "id": 4,
+            "title": "Create Factory Function for Datasets",
+            "description": "Develop a function that orchestrates the creation of the training and validation `Dataset` objects.",
+            "dependencies": [
+              "2.1",
+              "2.3"
+            ],
+            "details": "This function will call the file splitting function (from 2.1) to get the lists of train/val paths. It will then instantiate the custom `Dataset` class (from 2.3) twice, once for each list of paths, returning the two `Dataset` objects.",
+            "status": "done",
+            "testStrategy": "Call the function and confirm it returns two distinct `Dataset` objects. Check that the length of each dataset matches the expected split ratio (e.g., 240 and 60)."
+          },
+          {
+            "id": 5,
+            "title": "Implement DataLoader Generation Function",
+            "description": "Create a function that takes the train and validation `Dataset` objects and wraps them in `DataLoader` instances, ready for model consumption.",
+            "dependencies": [
+              "2.4"
+            ],
+            "details": "The function will accept the two `Dataset` objects and a `batch_size` parameter. It will return two `torch.utils.data.DataLoader` objects. The training loader must have `shuffle=True`, while the validation loader must have `shuffle=False`.",
+            "status": "done",
+            "testStrategy": "Generate the DataLoaders. Iterate through one batch of the training loader and verify the shape of the output tensors (e.g., `[batch_size, 3, 224, 224]`)."
           }
         ]
       },
@@ -91,30 +141,57 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Create Model File",
-            "description": "Create a new Python file at `src/model.py` to house the neural network architecture.",
-            "status": "done",
+            "title": "Create Model File and Define Class Structure",
+            "description": "Create the Python file for the model and define the basic `CNN` class structure, inheriting from `torch.nn.Module`, including the `__init__` and `forward` method stubs.",
             "dependencies": [],
-            "details": "",
-            "testStrategy": ""
+            "details": "The file, e.g., `src/model.py`, should import `torch` and `torch.nn`. The class definition should be `class CNN(nn.Module):` with a `super().__init__()` call inside the constructor.",
+            "status": "done",
+            "testStrategy": "Ensure the Python file is created and the code is syntactically correct with no import errors."
           },
           {
             "id": 2,
-            "title": "Implement CNN Architecture",
-            "description": "Define a class `NightSkyCNN` that inherits from `torch.nn.Module`. This class will contain the layers of the convolutional neural network (e.g., convolutional layers, ReLU activation, max pooling, and fully-connected layers).",
+            "title": "Implement Convolutional Feature Extractor Layers",
+            "description": "In the `__init__` method, define the sequence of convolutional (`nn.Conv2d`) and pooling (`nn.MaxPool2d`) layers that will serve as the feature extractor for the image data.",
+            "dependencies": [
+              "3.1"
+            ],
+            "details": "Define at least two convolutional blocks. Each block should consist of a `nn.Conv2d` layer, a ReLU activation function (to be applied in the forward pass), and an `nn.MaxPool2d` layer. The first `nn.Conv2d` layer must accept 3 input channels (for RGB images).",
             "status": "done",
-            "dependencies": [],
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Code review to check that layer parameters (channels, kernel size, stride) are reasonably defined."
           },
           {
             "id": 3,
-            "title": "Define Forward Pass",
-            "description": "Implement the `forward` method within the `NightSkyCNN` class to define the flow of data through the network layers.",
+            "title": "Implement Fully-Connected Classifier Head",
+            "description": "In the `__init__` method, define the fully-connected (`nn.Linear`) layers that will act as the classifier. This includes calculating the flattened feature size from the convolutional extractor's output.",
+            "dependencies": [
+              "3.2"
+            ],
+            "details": "The classifier will take the flattened output from the convolutional layers and map it to the final 3 class scores. The final `nn.Linear` layer must have `out_features=3`.",
             "status": "done",
-            "dependencies": [],
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Manually calculate the expected flattened dimension after the last pooling layer to ensure the `in_features` of the first `nn.Linear` layer is correct."
+          },
+          {
+            "id": 4,
+            "title": "Implement the `forward` Method Logic",
+            "description": "Implement the `forward(self, x)` method to define the complete data flow. This involves passing the input tensor `x` sequentially through the convolutional layers, applying activation functions, flattening the tensor, and finally passing it through the fully-connected layers.",
+            "dependencies": [
+              "3.2",
+              "3.3"
+            ],
+            "details": "Use `torch.nn.functional.relu` for activations after convolutional and linear layers (except the last). The tensor must be flattened using `x.view(x.size(0), -1)` between the convolutional and linear layers. The method must return the final logits tensor.",
+            "status": "done",
+            "testStrategy": "Code review to trace the tensor's path and transformations through the network, ensuring all defined layers are used correctly."
+          },
+          {
+            "id": 5,
+            "title": "Create a Unit Test for Model Shape Verification",
+            "description": "Write a simple, executable test to instantiate the model and pass a dummy tensor with the expected input shape through it. Verify that the forward pass executes without error and produces an output tensor of the correct shape.",
+            "dependencies": [
+              "3.4"
+            ],
+            "details": "This can be implemented in a separate test file or within an `if __name__ == '__main__':` block in the model file. Create a dummy input tensor, e.g., `torch.randn(1, 3, H, W)`, where H and W match the preprocessed image dimensions. Assert that the model's output shape is `(1, 3)`.",
+            "status": "done",
+            "testStrategy": "Run the test script and confirm it passes without any shape-mismatch errors and that the final assertion holds true."
           }
         ]
       },
@@ -133,46 +210,57 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Create Training Script File",
-            "description": "Create a new Python file at `src/train.py`.",
+            "title": "Initialize Script and Define Hyperparameters",
+            "description": "Create the main training script file. At the top of the script, define and centralize key hyperparameters such as learning rate, number of epochs, batch size, and the output path for the saved model.",
             "dependencies": [],
+            "details": "This setup makes the script easier to configure and modify. Example parameters: `LEARNING_RATE = 0.001`, `EPOCHS = 10`, `BATCH_SIZE = 32`, `MODEL_PATH = 'model.pth'`.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Verify the script runs without errors and that the defined variables are accessible."
           },
           {
             "id": 2,
-            "title": "Implement Training Loop",
-            "description": "In `src/train.py`, write the main training loop that iterates through the training data for a specified number of epochs.",
+            "title": "Implement Data Loading",
+            "description": "Add logic to load the prepared dataset using PyTorch's `Dataset` and `DataLoader` classes. The DataLoader should use the batch size defined in the first subtask.",
             "dependencies": [
-              1
+              "4.1"
             ],
+            "details": "This step connects the training script to the data prepared in previous tasks (Task 2 & 3). Ensure data transformations (e.g., ToTensor, Normalize) are correctly applied.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Iterate through one batch of the created DataLoader and print the shape of the tensors to ensure data is being loaded correctly."
           },
           {
             "id": 3,
-            "title": "Define Loss Function and Optimizer",
-            "description": "Instantiate the loss function (e.g., `nn.CrossEntropyLoss`) and the optimizer (e.g., `torch.optim.Adam`).",
+            "title": "Instantiate Model, Optimizer, and Loss Function",
+            "description": "Instantiate the CNN model architecture. Define the loss function (e.g., `torch.nn.CrossEntropyLoss`) and the optimizer (e.g., `torch.optim.Adam`), passing the model's parameters and learning rate to the optimizer.",
             "dependencies": [
-              1
+              "4.1"
             ],
+            "details": "This sets up the core components for training. The optimizer needs the model's parameters to know which weights to update.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Check that the model, criterion, and optimizer objects are created successfully without raising errors."
           },
           {
             "id": 4,
-            "title": "Save Trained Model",
-            "description": "After the training loop is complete, save the trained model's state dictionary to a file named `night_sky_model.pth`.",
+            "title": "Develop the Core Training Loop",
+            "description": "Construct the main training loop that iterates for the configured number of epochs. Inside, create a nested loop to iterate over batches from the DataLoader. Implement the forward pass, loss calculation, backpropagation, and optimizer step.",
             "dependencies": [
-              2,
-              3
+              "4.2",
+              "4.3"
             ],
+            "details": "The loop should perform these steps in order: `optimizer.zero_grad()`, `outputs = model(inputs)`, `loss = criterion(outputs, labels)`, `loss.backward()`, `optimizer.step()`. Add a print statement to log the running loss.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Run the loop for a small number of epochs (e.g., 2-3) on a subset of data and verify that the training loss is printed and generally decreases."
+          },
+          {
+            "id": 5,
+            "title": "Implement Model Saving",
+            "description": "After the main training loop completes, add the final logic to save the trained model's state dictionary to the file path defined in the hyperparameters.",
+            "dependencies": [
+              "4.4"
+            ],
+            "details": "Use `torch.save(model.state_dict(), MODEL_PATH)` to save the learned weights. This should be the last step executed upon successful training.",
+            "status": "done",
+            "testStrategy": "Run the full training script and verify that a file named `model.pth` (or the configured name) is created in the project directory upon completion."
           }
         ]
       },
@@ -190,23 +278,56 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Create CLI script file",
-            "description": "Create a new Python file at `src/main.py`.",
+            "title": "Initialize Script and Import Modules",
+            "description": "Create the main Python script file and import the necessary modules for argument parsing and path handling.",
             "dependencies": [],
+            "details": "Create a new Python file (e.g., `classify_images.py`). Add a standard shebang and a docstring. Import the `argparse` module for the CLI and the `pathlib` module for robust path validation.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Ensure the Python script is created and can be executed without raising any import or syntax errors."
           },
           {
             "id": 2,
-            "title": "Implement argument parsing",
-            "description": "Use Python's `argparse` module to define and parse the command-line arguments.",
+            "title": "Instantiate and Configure Argument Parser",
+            "description": "Set up the `ArgumentParser` object with a descriptive message that explains the tool's purpose.",
             "dependencies": [
-              1
+              "5.1"
             ],
+            "details": "Inside the script, create an instance of `argparse.ArgumentParser`. Provide a helpful `description` parameter, such as 'A command-line tool to classify images within a specified directory.'",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Execute the script with the `--help` flag and verify that the custom description is displayed correctly in the usage message."
+          },
+          {
+            "id": 3,
+            "title": "Define the Required Directory Path Argument",
+            "description": "Add the single, mandatory positional argument to the parser for the absolute path to the image directory.",
+            "dependencies": [
+              "5.2"
+            ],
+            "details": "Use the `parser.add_argument()` method to define a positional argument (e.g., 'directory_path'). Provide `help` text explaining that it must be an absolute path to the target directory.",
+            "status": "done",
+            "testStrategy": "Run the script with no arguments. Verify that `argparse` automatically generates an error stating that the required argument is missing."
+          },
+          {
+            "id": 4,
+            "title": "Parse Arguments and Validate Input Path",
+            "description": "Implement the logic to parse the provided arguments and validate that the input path exists and is a directory.",
+            "dependencies": [
+              "5.3"
+            ],
+            "details": "Call `parser.parse_args()` to retrieve the user-provided path. Use `pathlib.Path` to check if the path `exists()` and `is_dir()`. If validation fails, print a user-friendly error message and exit the script with a non-zero status code.",
+            "status": "done",
+            "testStrategy": "Test by providing a valid directory path (should pass), a path to a file (should fail with an error), and a non-existent path (should fail with an error)."
+          },
+          {
+            "id": 5,
+            "title": "Implement Main Execution Block with Processing Placeholder",
+            "description": "Structure the script with a main execution block and add a placeholder for the subsequent file processing logic.",
+            "dependencies": [
+              "5.4"
+            ],
+            "details": "Wrap the script's logic in a `main()` function and call it from within an `if __name__ == '__main__':` block. After successful argument validation, add a print statement like `Processing images in directory: [path]` to act as a placeholder for future integration.",
+            "status": "done",
+            "testStrategy": "Execute the script with a valid directory path and confirm that it prints the placeholder message successfully without errors. Test with too many arguments to ensure it fails gracefully as expected."
           }
         ]
       },
@@ -224,12 +345,55 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Implement directory creation logic",
-            "description": "Use `os.makedirs` with `exist_ok=True` to create the output directories.",
+            "title": "Add Command-Line Argument for Target Directory",
+            "description": "Update the CLI script's argument parser to accept a path for the target output directory.",
             "dependencies": [],
+            "details": "Use a library like `argparse` to add a required argument (e.g., `target_dir`) that will capture the path provided by the user where the subdirectories should be created.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Run the script with a `--help` flag to verify the new argument is documented. Run it with a test path and print the parsed value to confirm it's captured correctly."
+          },
+          {
+            "id": 2,
+            "title": "Define a Dedicated Directory Setup Function",
+            "description": "Create a new, single-purpose function that will contain all the logic for creating the necessary subdirectories.",
+            "dependencies": [],
+            "details": "Define a function, for example `create_output_directories(base_path)`, that accepts the target directory path as an argument. This encapsulates the logic for better code organization and reusability.",
+            "status": "done",
+            "testStrategy": "Confirm the function can be imported and called without errors."
+          },
+          {
+            "id": 3,
+            "title": "Define Subdirectory Names and Construct Full Paths",
+            "description": "Inside the new function, define the required subdirectory names and construct their full, absolute paths based on the input `base_path`.",
+            "dependencies": [
+              "6.2"
+            ],
+            "details": "Create a constant list of names: `['fireballs', 'meteors', 'no_meteors']`. Loop through this list and use `pathlib.Path` or `os.path.join` to combine the `base_path` with each name to form a complete path.",
+            "status": "done",
+            "testStrategy": "Add print statements inside the function to verify that the correct, full paths are being constructed for a given test `base_path`."
+          },
+          {
+            "id": 4,
+            "title": "Implement Safe Directory Creation Logic",
+            "description": "For each constructed path, implement the logic to create the directory, ensuring it does not fail if the directory already exists.",
+            "dependencies": [
+              "6.3"
+            ],
+            "details": "Within the loop, for each full path, use a method like `pathlib.Path.mkdir(exist_ok=True)` or `os.makedirs(path, exist_ok=True)`. This is the standard, race-condition-safe way to create a directory only if it's missing.",
+            "status": "done",
+            "testStrategy": "Point the script to an empty temporary directory and verify the three subdirectories are created. Run it a second time on the same directory to ensure no errors are thrown."
+          },
+          {
+            "id": 5,
+            "title": "Integrate Function Call into Main Script Flow",
+            "description": "Call the `create_output_directories` function from the main execution block of the script, passing it the path obtained from the command-line arguments.",
+            "dependencies": [
+              "6.1",
+              "6.4"
+            ],
+            "details": "After the command-line arguments are parsed, retrieve the target directory path and pass it to the `create_output_directories` function. This ensures the required directory structure exists before any subsequent file processing begins.",
+            "status": "done",
+            "testStrategy": "Perform a full end-to-end test by running the CLI script from the command line with a path to a new, empty directory and confirming the subdirectories are created as expected."
           }
         ]
       },
@@ -247,12 +411,56 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Implement image file iteration logic",
-            "description": "Use `os.listdir` and `fname.lower().endswith(\".jpg\")` to iterate through the image files.",
+            "title": "Retrieve Target Directory Path",
+            "description": "Access the command-line argument that specifies the target directory to be scanned for images.",
             "dependencies": [],
+            "details": "Within the main script function, retrieve the directory path string that was passed as a command-line argument. This path will be the input for the file listing function.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Verify that the variable holding the path correctly reflects the argument provided when running the script."
+          },
+          {
+            "id": 2,
+            "title": "List All Items in Directory Root",
+            "description": "Get a complete list of all files and subdirectories located directly within the specified target directory.",
+            "dependencies": [
+              "7.1"
+            ],
+            "details": "Use a standard library function like `os.listdir()` with the retrieved directory path to get an initial list of all item names in the directory's root.",
+            "status": "done",
+            "testStrategy": "Run against a test directory and print the resulting list to confirm it contains all files (e.g., `image1.jpg`, `notes.txt`) and subdirectories."
+          },
+          {
+            "id": 3,
+            "title": "Filter List to Isolate Root-Level Files",
+            "description": "Process the list of all directory items to create a new list containing full paths to files only, excluding all subdirectories.",
+            "dependencies": [
+              "7.2"
+            ],
+            "details": "Iterate through the item names. For each name, construct its full path using `os.path.join()` and then use `os.path.isfile()` to confirm it is a file, not a directory. Collect the full paths of the files.",
+            "status": "done",
+            "testStrategy": "Using a test directory with mixed files and subdirectories, verify the filtered list contains paths to files but not to the subdirectories."
+          },
+          {
+            "id": 4,
+            "title": "Filter File List for `.jpg` Extension",
+            "description": "Further refine the list of files to retain only those that have a `.jpg` extension.",
+            "dependencies": [
+              "7.3"
+            ],
+            "details": "Apply a filter to the list of file paths. For each path, check if it ends with `.jpg`. It's good practice to handle this case-insensitively (e.g., by checking `path.lower().endswith('.jpg')`).",
+            "status": "done",
+            "testStrategy": "Given a list of file paths with various extensions (`.jpg`, `.txt`, `.png`), confirm the final list only contains the paths to the `.jpg` files."
+          },
+          {
+            "id": 5,
+            "title": "Implement Iteration Loop and Log File Paths",
+            "description": "Create the final `for` loop that iterates over the filtered list of `.jpg` file paths and logs each path to the console for verification.",
+            "dependencies": [
+              "7.4"
+            ],
+            "details": "Write a `for` loop that takes the final list of `.jpg` file paths as its input. Inside the loop, add a `print()` or logging statement to display the full path of the file being processed. This confirms the selection logic is correct before adding classification.",
+            "status": "done",
+            "testStrategy": "Run the full script on the test directory and verify that the console output lists only the `.jpg` files from the root, ignoring other files and all files in subdirectories."
           }
         ]
       },
@@ -271,34 +479,55 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Load pre-trained model",
-            "description": "Load the saved `night_sky_model.pth` file into the model.",
+            "title": "Load Pre-trained Model Architecture and Weights",
+            "description": "Implement the logic to instantiate the model's architecture and load the trained state dictionary from the `model.pth` file. The model should be set to evaluation mode.",
             "dependencies": [],
+            "details": "Define the same PyTorch model class that was used for training. Create a function that initializes this model and then uses `torch.load()` to load the weights into it. Ensure the model is switched to evaluation mode using `model.eval()` to disable layers like dropout.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Verify that the function successfully loads the model without errors and that the model object is an instance of the correct PyTorch nn.Module class."
           },
           {
             "id": 2,
-            "title": "Preprocess images for inference",
-            "description": "Apply the same transformations used during training to the images that will be classified.",
-            "dependencies": [
-              1
-            ],
+            "title": "Define Image Preprocessing Transformations",
+            "description": "Create the image transformation pipeline that exactly matches the one used during the model's training phase to ensure consistent input.",
+            "dependencies": [],
+            "details": "Use `torchvision.transforms.Compose` to chain together the necessary transformations, such as resizing the image, center cropping, converting it to a tensor, and normalizing it with the correct mean and standard deviation values used in training.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Apply the transformation to a sample image and check that the output is a correctly shaped and normalized PyTorch tensor."
           },
           {
             "id": 3,
-            "title": "Perform model inference",
-            "description": "Perform a forward pass through the model to get the prediction.",
+            "title": "Implement Image Loading and Preprocessing Function",
+            "description": "Create a function that takes an image file path, loads the image using Pillow, and applies the predefined preprocessing transformations.",
             "dependencies": [
-              2
+              "8.2"
             ],
+            "details": "This function will use the Pillow library (PIL) to open an image file from a given path. It will then pass this PIL image to the transformation pipeline created in the previous subtask to produce a tensor ready for the model. Remember to handle potential file-not-found errors.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Pass a test image path to the function and assert that it returns a tensor of the expected dimensions (e.g., [3, 224, 224])."
+          },
+          {
+            "id": 4,
+            "title": "Perform Model Forward Pass for Prediction",
+            "description": "Develop the core inference function to perform a forward pass on a preprocessed image tensor and extract the predicted class index.",
+            "dependencies": [
+              "8.1",
+              "8.3"
+            ],
+            "details": "The function will accept a single image tensor. It should add a batch dimension, pass it to the loaded model within a `torch.no_grad()` context, get the output logits, and use `torch.argmax` to find the index of the highest logit.",
+            "status": "done",
+            "testStrategy": "Pass a sample tensor through the function and verify that the output is a single integer representing the predicted class index."
+          },
+          {
+            "id": 5,
+            "title": "Map Prediction Index to Final Class Label",
+            "description": "Convert the model's numerical output index into a human-readable string label like 'fireballs', 'meteors', or 'no_meteors'.",
+            "dependencies": [
+              "8.4"
+            ],
+            "details": "Create a mapping, such as a list or dictionary, that links the class indices (0, 1, 2, etc.) to their corresponding string names. The main prediction function will use this map to return the final string result.",
+            "status": "done",
+            "testStrategy": "Provide a sample class index (e.g., 0) to the mapping logic and verify that it returns the correct corresponding string (e.g., 'fireballs')."
           }
         ]
       },
@@ -318,12 +547,57 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Implement file moving logic",
-            "description": "Use `os.rename` to move the classified files to the correct subdirectories.",
+            "title": "Define a dedicated file moving function",
+            "description": "Create a new, self-contained function responsible for moving a single file. This function will encapsulate the file operation logic, making the main script cleaner and the functionality easier to test.",
             "dependencies": [],
+            "details": "In the relevant Python module, define a function, e.g., `move_file_to_category(source_path, target_base_dir, category)`. Import the `os` and `shutil` libraries at the top of the module.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "This function can be unit-tested in isolation by passing mock paths and verifying that `shutil.move` is called with the correct arguments."
+          },
+          {
+            "id": 2,
+            "title": "Implement dynamic destination path construction",
+            "description": "Inside the new function, implement the logic to correctly construct the full destination path using the base directory, the category subfolder, and the original filename.",
+            "dependencies": [
+              "9.1"
+            ],
+            "details": "Use `os.path.basename(source_path)` to get the filename. Then, use `os.path.join(target_base_dir, category, filename)` to create the full, platform-agnostic destination path.",
+            "status": "done",
+            "testStrategy": "Verify that for an input of `('/tmp/img1.jpg', '/data/output', 'meteors')`, the generated path is `'/data/output/meteors/img1.jpg'`."
+          },
+          {
+            "id": 3,
+            "title": "Execute the file move using shutil",
+            "description": "Use the `shutil` library to perform the actual file move operation from the constructed source path to the destination path.",
+            "dependencies": [
+              "9.1",
+              "9.2"
+            ],
+            "details": "Within the `move_file_to_category` function, call `shutil.move(source_path, destination_path)` after the destination path has been constructed.",
+            "status": "done",
+            "testStrategy": "Create a dummy file and run the function to ensure the file is physically moved to the correct destination folder."
+          },
+          {
+            "id": 4,
+            "title": "Integrate the move function into the main processing loop",
+            "description": "Call the `move_file_to_category` function from the main image processing loop immediately after a classification result is obtained for an image.",
+            "dependencies": [
+              "9.1"
+            ],
+            "details": "After the model returns a prediction (e.g., 'fireballs'), call `move_file_to_category`, passing the current image's path, the main output directory, and the predicted category string as arguments.",
+            "status": "done",
+            "testStrategy": "Run the full script on a test image and check logs or print statements to confirm the move function is called with the correct parameters after classification."
+          },
+          {
+            "id": 5,
+            "title": "Add logging and error handling for the move operation",
+            "description": "Enhance the move function to include logging for traceability and error handling to gracefully manage issues like permission errors or non-existent destination directories.",
+            "dependencies": [
+              "9.3"
+            ],
+            "details": "Wrap the `shutil.move` call in a `try...except` block. Log an informational message before the move (e.g., `Moving {file} to {category}...`). In the `except` block (catching `IOError`, `OSError`), log an error message detailing the failure.",
+            "status": "done",
+            "testStrategy": "Test the error handling by attempting to move a file to a read-only directory and verify that an error is logged and the script does not crash."
           }
         ]
       },
@@ -341,28 +615,236 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Create README.md file",
-            "description": "Create a `README.md` file with instructions on how to set up and run the project.",
+            "title": "Finalize and Verify `requirements.txt`",
+            "description": "Generate the final `requirements.txt` file, ensuring it includes all necessary dependencies with pinned versions for reproducibility.",
             "dependencies": [],
+            "details": "Create a clean virtual environment, install the project dependencies, and run `pip freeze > requirements.txt`. Review the file to ensure it is complete and accurate.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "In a new, clean virtual environment, run `pip install -r requirements.txt` and then execute the main script to confirm it runs without any `ModuleNotFoundError`."
           },
           {
             "id": 2,
-            "title": "Finalize requirements.txt",
-            "description": "Ensure the `requirements.txt` file is up-to-date with all necessary dependencies.",
-            "dependencies": [],
+            "title": "Draft README: Project Overview and Installation",
+            "description": "Write the initial sections of the `README.md` file, covering the project's purpose and detailed setup instructions.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Include a clear, high-level summary of what the project does. Provide step-by-step instructions for cloning the repository, creating a virtual environment, and installing dependencies using the `pip install -r requirements.txt` command.",
             "status": "done",
-            "details": "",
-            "testStrategy": ""
+            "testStrategy": "Review the written section for clarity and ensure the instructions are easy for a newcomer to follow."
+          },
+          {
+            "id": 3,
+            "title": "Draft README: Usage Instructions",
+            "description": "Complete the `README.md` by adding a 'Usage' section that details the exact command to run the script and explains its arguments.",
+            "dependencies": [
+              "10.2"
+            ],
+            "details": "Clearly document the command to execute the script. Explain any required command-line arguments (e.g., source and target directories). Provide a concrete example command.",
+            "status": "done",
+            "testStrategy": "Copy and paste the example command from the README directly into a terminal and verify it runs the script as described."
+          },
+          {
+            "id": 4,
+            "title": "Perform Internal End-to-End Test",
+            "description": "Execute a full, clean-slate test of the entire project workflow by strictly following the newly created `README.md` instructions from start to finish.",
+            "dependencies": [
+              "10.3"
+            ],
+            "details": "Clone the repository into a new directory. Follow every step in the `README.md` precisely: set up the environment, install dependencies, and run the script with test data. Rely only on the documentation.",
+            "status": "done",
+            "testStrategy": "Confirm that the script runs to completion without errors and produces the expected output based solely on the documented steps."
+          },
+          {
+            "id": 5,
+            "title": "Conduct Peer Review of Documentation",
+            "description": "Ask a colleague to clone the repository and follow the `README.md` instructions to validate the clarity and accuracy of the documentation.",
+            "dependencies": [
+              "10.4"
+            ],
+            "details": "Provide the repository link to a colleague. Ask them to set up and run the project using only the `README.md`. Collect feedback on any confusing steps or errors.",
+            "status": "done",
+            "testStrategy": "Success is achieved if the colleague can set up the environment and run the script successfully without any assistance beyond the `README.md`."
           }
         ]
+      },
+      {
+        "id": 11,
+        "title": "Develop Recursive Directory Scanner",
+        "description": "Create the core logic to recursively scan a directory structure based on a pattern and find all `.jpg` image files.",
+        "details": "Implement a new script, `src/scanner.py`, that traverses a directory tree starting from a configurable base path for `@MeteorsStations`. The script must identify all `.jpg` files within the specified subdirectory pattern (`cam[03-82]/YYYY/YYYYMM/YYYYMMDD/`). Use Python's `pathlib.glob` for efficient traversal and pattern matching.",
+        "testStrategy": "Create a mock directory structure containing nested folders, `.jpg` files that match the pattern, and some that do not. Run the scanner script and verify that its output lists the full paths of only the matching `.jpg` files.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Initialize `src/scanner.py` Script Structure",
+            "description": "Create the new Python script file `src/scanner.py` and add initial boilerplate code, including necessary imports and a file-level docstring.",
+            "dependencies": [],
+            "details": "Create the file `src/scanner.py`. Add a docstring explaining the module's purpose. Import the `Path` class from the `pathlib` module.",
+            "status": "done",
+            "testStrategy": "Verify that the file `src/scanner.py` exists and contains the basic Python script structure without syntax errors."
+          },
+          {
+            "id": 2,
+            "title": "Define Scanner Function with Configurable Base Path",
+            "description": "Define the main scanner function signature, `scan_for_images(base_path: Path)`, to ensure the starting directory is configurable.",
+            "dependencies": [
+              "11.1"
+            ],
+            "details": "In `src/scanner.py`, implement the function signature `scan_for_images(base_path: Path) -> list[Path]:`. Add a comprehensive docstring explaining its parameters, return value, and purpose. The function body can be a placeholder for now.",
+            "status": "done",
+            "testStrategy": "Check that the function is defined correctly in the script and accepts one argument."
+          },
+          {
+            "id": 3,
+            "title": "Construct the Glob Search Pattern",
+            "description": "Define the glob pattern string that matches the specified directory structure `cam[03-82]/YYYY/YYYYMM/YYYYMMDD/` and selects `.jpg` files.",
+            "dependencies": [
+              "11.1"
+            ],
+            "details": "The required pattern is `cam[0-9][0-9]/[0-9][0-9][0-9][0-9]/[0-9][0-9][0-9][0-9][0-9][0-9]/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/**/*.jpg`. Store this pattern in a constant. Note that `glob` does not support numeric ranges like `[03-82]`, so a pattern like `cam[0-8][0-9]` will be used, with the understanding that further filtering might be needed later if the range is strict.",
+            "status": "done",
+            "testStrategy": "Verify the pattern string is correctly defined and matches the required directory hierarchy and file type."
+          },
+          {
+            "id": 4,
+            "title": "Implement File Scanning Logic using `pathlib.glob`",
+            "description": "Implement the core logic within the `scan_for_images` function to use `pathlib.Path.glob()` with the constructed pattern to find all matching `.jpg` files.",
+            "dependencies": [
+              "11.2",
+              "11.3"
+            ],
+            "details": "Inside the `scan_for_images` function, combine the `base_path` argument with the glob pattern constant. Use the `glob()` method on the resulting `Path` object to execute the search. Collect all results and return them as a list of `Path` objects.",
+            "status": "done",
+            "testStrategy": "Create a mock directory structure and run the function, asserting that the returned list contains exactly the paths to the matching `.jpg` files."
+          },
+          {
+            "id": 5,
+            "title": "Add Main Execution Block for Standalone Verification",
+            "description": "Add a `if __name__ == '__main__':` block to make the script runnable from the command line for easy testing and demonstration.",
+            "dependencies": [
+              "11.4"
+            ],
+            "details": "In the main block, set a hardcoded example `base_path` for `@MeteorsStations`. Call the `scan_for_images` function with this path. Iterate over the returned list of file paths and print each full path to the console.",
+            "status": "done",
+            "testStrategy": "Execute `python src/scanner.py` against a test directory and verify that the printed output on the console correctly lists the full paths of all matching `.jpg` files."
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Implement Stateful Image Processing",
+        "description": "Add a mechanism to track already processed images to prevent redundant analysis and save computational resources.",
+        "details": "In `src/scanner.py`, implement logic to read a state file (`.taskmaster/processed_files.log`) into a Python `set` for efficient lookup at startup. Before processing a newly found image, check if its path exists in the set. After an image is successfully processed, append its path to the log file. Ensure file writes are flushed immediately to prevent data loss on unexpected termination.",
+        "testStrategy": "Run the scanner on a test directory. Verify that `processed_files.log` is created and populated with the correct file paths. Run the script a second time and check the console logs to confirm that the previously processed files are identified and skipped.",
+        "priority": "high",
+        "dependencies": [
+          11
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define State File Path and Ensure Directory Exists",
+            "description": "Establish the location for the state file and programmatically ensure its parent directory is created before any read or write operations.",
+            "dependencies": [],
+            "details": "In `src/scanner.py`, define a constant for the state file path, e.g., `STATE_FILE = '.taskmaster/processed_files.log'`. At the start of the main function, use `pathlib` or `os` to create the `.taskmaster` directory if it doesn't already exist.",
+            "status": "done",
+            "testStrategy": "Run the script. Verify that a `.taskmaster` directory is created in the project root if it wasn't there before."
+          },
+          {
+            "id": 2,
+            "title": "Implement Function to Load Processed Files into a Set",
+            "description": "Create a function that reads the state file and loads all previously processed file paths into a Python `set` for efficient, O(1) average time complexity lookups.",
+            "dependencies": [
+              "12.1"
+            ],
+            "details": "Create a function `load_processed_files(path)` in `src/scanner.py`. It should open and read the specified file, stripping newline characters from each line, and return a `set` of the paths. It must handle a `FileNotFoundError` by returning an empty `set`.",
+            "status": "done",
+            "testStrategy": "Create a dummy `processed_files.log` with a few paths. Call the function and assert that the returned set contains the exact same paths."
+          },
+          {
+            "id": 3,
+            "title": "Integrate Pre-processing Check into Image Loop",
+            "description": "Modify the main processing loop to check if an image has already been processed before attempting to analyze it.",
+            "dependencies": [
+              "12.2"
+            ],
+            "details": "At startup, call `load_processed_files` to populate the set. Inside the loop that iterates over discovered image files, add a condition: `if image_path in processed_files_set:`. If true, log a message that the file is being skipped and `continue` to the next file.",
+            "status": "done",
+            "testStrategy": "Run the scanner on a directory. On the second run, check the console output to confirm that log messages indicate the files are being skipped."
+          },
+          {
+            "id": 4,
+            "title": "Implement Function to Append and Flush Processed File Path",
+            "description": "Create a function to append a new file path to the state log file and ensure the change is written to disk immediately to prevent data loss.",
+            "dependencies": [
+              "12.1"
+            ],
+            "details": "Create a function `log_processed_file(path, file_path_to_add)`. This function should open the state file in append mode (`'a'`), write the new file path followed by a newline, and then explicitly call `flush()` on the file handle before closing it.",
+            "status": "done",
+            "testStrategy": "Call the function with a test path. Inspect the `processed_files.log` file to confirm the new path was appended correctly."
+          },
+          {
+            "id": 5,
+            "title": "Update State After Successful Processing",
+            "description": "After an image is successfully processed, update both the persistent state file and the in-memory set to reflect its new status.",
+            "dependencies": [
+              "12.3",
+              "12.4"
+            ],
+            "details": "In the image processing loop, after an image is successfully classified and moved, call the `log_processed_file` function to update the on-disk log. Immediately after, add the same file path to the in-memory `set` (e.g., `processed_files_set.add(image_path)`).",
+            "status": "done",
+            "testStrategy": "Process a new file. Verify its path is added to `processed_files.log`. Without restarting the script, confirm that if the same file were to be encountered again, it would be skipped based on the updated in-memory set."
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Integrate ML Classifier",
+        "description": "Connect the file scanner with the existing ML model to classify new, unprocessed images.",
+        "details": "In the main processing loop of `src/scanner.py`, import and instantiate the `Classifier` class from `src/main.py`. For each new image that is not in the processed log, call the classifier's analysis method. The classification result (e.g., 'fireball', 'other') should be logged to the console for monitoring.",
+        "testStrategy": "Prepare a small set of test images with known classifications. Run the scanner on the directory containing these images. Verify that the log output correctly displays the classification result for each new image processed.",
+        "priority": "high",
+        "dependencies": [
+          12
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Implement Conditional Fireball Notifications",
+        "description": "Trigger a Telegram notification, including the image, whenever the model classifies an image as a 'fireball'.",
+        "details": "Import the existing `send_telegram_notification` async function from `src/watcher.py` into `src/scanner.py`. Modify the processing loop so that when an image is classified as 'fireball', it calls this notification function. The function should be passed the original image path. The original file must not be moved or deleted.",
+        "testStrategy": "Configure the Telegram bot credentials for a test channel. Use a mock classifier that always returns 'fireball' or use a known fireball image. Run the script and verify that a notification containing the correct image and message is received in the designated Telegram chat.",
+        "priority": "high",
+        "dependencies": [
+          13
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Add Configuration and Structured Logging",
+        "description": "Make the base directory path configurable and implement structured logging for monitoring and debugging.",
+        "details": "In `src/scanner.py`, replace the hardcoded base path with a configurable variable. Set up Python's built-in `logging` module to output to both the console and a file (`logs/scanner.log`). Log key events such as script start/end, directories scanned, new files found, classification results, and any `FileNotFoundError` exceptions wrapped in `try...except` blocks.",
+        "testStrategy": "Set a custom base path via the configuration and run the script, verifying it scans the correct location. Intentionally create a scenario that would raise an error (e.g., delete a file mid-run if possible). Check the contents of `logs/scanner.log` to ensure progress, warnings, and errors are recorded clearly.",
+        "priority": "medium",
+        "dependencies": [
+          14
+        ],
+        "status": "done",
+        "subtasks": []
       }
     ],
     "metadata": {
       "created": "2025-08-05T08:36:18.846Z",
-      "updated": "2025-08-05T10:41:26.310Z",
+      "updated": "2025-08-10T21:08:13.680Z",
       "description": "Tasks for master context"
     }
   }

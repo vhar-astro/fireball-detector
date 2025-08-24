@@ -14,7 +14,8 @@ class Classifier:
 
     def classify_image(self, image_path):
         """Classifies a single image and returns the class name."""
-        image = Image.open(image_path).convert("RGB")
+        with open(image_path, 'rb') as f:
+            image = Image.open(f).convert("RGB")
         image = data_transforms(image).unsqueeze(0)  # Add batch dimension
         
         with torch.no_grad():
