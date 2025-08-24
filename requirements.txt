@@ -1,5 +1,2 @@
-torch
-torchvision
-Pillow
 watchdog
 python-telegram-bot
