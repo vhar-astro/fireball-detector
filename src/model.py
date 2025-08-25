@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class NightSkyCNN(nn.Module):
-    def __init__(self, num_classes=3):
+    def __init__(self, num_classes=4):
         super(NightSkyCNN, self).__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
