@@ -14,7 +14,7 @@ class NightSkyDataset(Dataset):
     def __init__(self, root_dir, transform=data_transforms):
         self.root_dir = root_dir
         self.transform = transform
-        self.classes = ['fireballs', 'meteors', 'no_fireballs', 'trash']
+        self.classes = ['fireballs', 'meteors', 'no_fireballs', 'lightnings']
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
         self.samples = self._make_dataset()
 
