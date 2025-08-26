@@ -4,6 +4,7 @@ import os
 import argparse
 import asyncio
 import logging
+from src.config import Config
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -105,7 +106,7 @@ def main():
     """Main function to start the watcher service."""
     parser = argparse.ArgumentParser(description="Watch a folder and classify new night sky images.")
     parser.add_argument("source_dir", type=str, help="The folder to watch for new images.")
-    parser.add_argument("--model_path", type=str, default="night_sky_model.pth", help="Path to the trained model.")
+    parser.add_argument("--model_path", type=str, default=Config.MODEL_PATH, help="Path to the trained model.")
     args = parser.parse_args()
 
     if not os.path.isdir(args.source_dir):

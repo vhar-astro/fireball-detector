@@ -29,8 +29,8 @@ def train_model(data_dir, num_epochs=10, batch_size=32, learning_rate=0.001):
     print("Training finished.")
 
     # Save the model checkpoint
-    torch.save(model.state_dict(), 'night_sky_model.pth')
-    print("Model saved to night_sky_model.pth")
+    torch.save(model.state_dict(), Config.MODEL_PATH)
+    print(f"Model saved to {Config.MODEL_PATH}")
 
 if __name__ == '__main__':
     import argparse

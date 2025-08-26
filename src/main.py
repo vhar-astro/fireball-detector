@@ -1,16 +1,17 @@
 import argparse
 import os
 import torch
+from src.config import Config
 from PIL import Image
 from src.data.dataset import data_transforms
 from src.model import NightSkyCNN
 
 class Classifier:
-    def __init__(self, model_path='night_sky_model.pth'):
-        self.model = NightSkyCNN(num_classes=4)
+    def __init__(self, model_path=Config.MODEL_PATH):
+        self.model = NightSkyCNN(num_classes=Config.CLASSES_SIZE)
         self.model.load_state_dict(torch.load(model_path))
         self.model.eval()
-        self.classes = ['fireballs', 'meteors', 'no_fireballs', 'lightnings']
+        self.classes = Config.CLASSES
 
     def classify_image(self, image_path):
         """Classifies a single image and returns the class name."""
@@ -28,7 +29,7 @@ def main():
     """Main function to run the CLI for one-time classification."""
     parser = argparse.ArgumentParser(description="Classify night sky images.")
     parser.add_argument("data_dir", type=str, help="The absolute path to the directory of images to process.")
-    parser.add_argument("--model_path", type=str, default="night_sky_model.pth", help="Path to the trained model.")
+    parser.add_argument("--model_path", type=str, default=Config.MODEL_PATH, help="Path to the trained model.")
     args = parser.parse_args()
 
     classifier = Classifier(args.model_path)
