@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from src.config import Config
 from src.data.dataset import get_dataloaders
 from src.model import NightSkyCNN
 
-def train_model(data_dir, num_epochs=10, batch_size=32, learning_rate=0.001):
+def train_model(data_dir, num_epochs=50, batch_size=8, learning_rate=0.001):
     """Trains the NightSkyCNN model."""
     train_loader, val_loader = get_dataloaders(data_dir, batch_size=batch_size)
 
