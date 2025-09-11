@@ -2,6 +2,7 @@ import os
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
+from src.config import Config
 
 # Define the image transformations
 data_transforms = transforms.Compose([
@@ -14,7 +15,7 @@ class NightSkyDataset(Dataset):
     def __init__(self, root_dir, transform=data_transforms):
         self.root_dir = root_dir
         self.transform = transform
-        self.classes = ['fireballs', 'meteors', 'no_fireballs', 'lightnings']
+        self.classes = Config.CLASSES
         self.class_to_idx = {cls: i for i, cls in enumerate(self.classes)}
         self.samples = self._make_dataset()
 
@@ -41,7 +42,7 @@ class NightSkyDataset(Dataset):
             img = self.transform(img)
         return img, target
 
-def get_dataloaders(root_dir, batch_size=32, val_split=0.2):
+def get_dataloaders(root_dir, batch_size=Config.BATCH_SIZE, val_split=0.2):
     """Creates and returns training and validation DataLoaders."""
     dataset = NightSkyDataset(root_dir)
     
