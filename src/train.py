@@ -5,12 +5,24 @@ from src.config import Config
 from src.data.dataset import get_dataloaders
 from src.model import NightSkyCNN
 
-def train_model(data_dir, num_epochs=50, batch_size=8, learning_rate=0.001):
+def train_model(data_dir, num_epochs=Config.NUM_EPOCHS, batch_size=Config.BATCH_SIZE, learning_rate=Config.LEARNING_RATE):
     """Trains the NightSkyCNN model."""
     train_loader, val_loader = get_dataloaders(data_dir, batch_size=batch_size)
 
     model = NightSkyCNN()
     criterion = nn.CrossEntropyLoss()
+
+    # --
+    # Example counts in class order [c0, c1, c2, c3]
+    #['fireballs', 'meteors', 'no_fireballs', 'lightnings']
+    # counts = torch.tensor([90, 454, 2000, 84], dtype=torch.float)
+    # print(counts)
+    # # Inverse-frequency weights (clip to avoid extremes if needed)
+    # weights = 1.0 / counts
+    # weights = weights / weights.sum() * len(counts)  # normalize around 1.0
+
+    # criterion = nn.CrossEntropyLoss(weight=weights)  # plug into training loop
+    # ---
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(num_epochs):
@@ -30,11 +42,13 @@ def train_model(data_dir, num_epochs=50, batch_size=8, learning_rate=0.001):
     print("Training finished.")
 
     # Save the model checkpoint
-    torch.save(model.state_dict(), Config.MODEL_PATH)
-    print(f"Model saved to {Config.MODEL_PATH}")
+    torch.save(model.state_dict(), Config.TRAIN_MODEL_PATH)
+    print(f"Model saved to {Config.TRAIN_MODEL_PATH}")
 
 if __name__ == '__main__':
     import argparse
+
+    print(f"Training started for {Config.TRAIN_MODEL_PATH}(num_epochs={Config.NUM_EPOCHS},batch_size={Config.BATCH_SIZE},learning_rate={Config.LEARNING_RATE})")
 
     parser = argparse.ArgumentParser(description='Train the Night Sky CNN model.')
     parser.add_argument('data_dir', type=str, help='Path to the root data directory.')

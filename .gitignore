@@ -33,7 +33,7 @@ venv-cpu/
 training_data/
 __pycache__/
 AI.zip
-night_sky_model.pth
+*.pth
 classify_sky.spec
 build/classify_sky/Analysis-00.toc
 build/classify_sky/base_library.zip
@@ -67,3 +67,4 @@ dist/classify_sky_cpu
 classify_sky_cpu.spec
 .gemini/settings.json
 MeteorsStations/
+test/
