@@ -7,7 +7,6 @@ import os
 from PIL import Image
 from src.config import Config
 
-
 class Classifier:
     def __init__(self, model_path=Config.RESNET18_MODEL_PATH):
         # ✅ Load trained model
