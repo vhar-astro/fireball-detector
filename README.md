@@ -34,6 +34,8 @@ This project uses a convolutional neural network (CNN) to classify images of the
     Place your training data in a directory (e.g., `training_data`) with subdirectories for each class (e.g., `fireballs`, `meteors`, `no_fireballs`, `lightnings`). Then run the training script:
     ```bash
     python -m src.train training_data
+    OR
+    python -m src.train_resnet18 training_data
     ```
 
     Set model name in config.py. 
