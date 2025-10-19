@@ -1,6 +1,30 @@
-# Night Sky Image Classification
+# Night Sky Image Classification & Object Detection
 
-This project uses a convolutional neural network (CNN) to classify images of the night sky into four categories: fireballs, meteors, no_fireballs, and trash.
+This project provides two machine learning capabilities:
+
+1. **Image Classification**: Classify entire images into categories (fireballs, meteors, no_fireballs, etc.)
+2. **Object Detection**: Detect and localize objects within images using Faster R-CNN with bounding boxes
+
+## 🆕 Object Detection (NEW!)
+
+Train a Faster R-CNN model to detect and localize objects in images. Perfect for identifying multiple objects in a single image with precise bounding boxes.
+
+**Quick Start:**
+- See [QUICKSTART_OBJECT_DETECTION.md](QUICKSTART_OBJECT_DETECTION.md) for a 5-minute guide
+- See [OBJECT_DETECTION_README.md](OBJECT_DETECTION_README.md) for complete documentation
+
+**Features:**
+- Faster R-CNN with ResNet50 backbone
+- Train from scratch on custom datasets
+- YOLO format annotation support (via image-classification app)
+- Comprehensive metrics: mAP, IoU, Precision, Recall
+- Model export to ONNX and TorchScript
+
+---
+
+## Image Classification
+
+This project uses a convolutional neural network (CNN) to classify images of the night sky into categories.
 
 ## Setup
 

@@ -3,3 +3,6 @@
 torch
 torchvision
 Pillow
+numpy
+onnx
+onnxruntime
