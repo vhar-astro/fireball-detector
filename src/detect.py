@@ -2,15 +2,28 @@
 Object detection inference script.
 
 This script runs inference on images using a trained Faster R-CNN model,
-visualizes predictions, and supports model export to ONNX and TorchScript.
+visualizes predictions, organizes images by detected class, and supports
+model export to ONNX and TorchScript.
 
 Usage:
     # Detect objects in a single image
     python -m src.detect --image path/to/image.jpg --model checkpoints/best_model.pth
-    
-    # Detect objects in a directory
+
+    # Detect objects in a directory (batch processing)
     python -m src.detect --input_dir path/to/images/ --model checkpoints/best_model.pth
-    
+
+    # Organize images by detected class (copy mode)
+    python -m src.detect --input_dir path/to/images/ --model checkpoints/best_model.pth \
+        --action copy --output_dir organized/
+
+    # Organize images by detected class (move mode)
+    python -m src.detect --input_dir path/to/images/ --model checkpoints/best_model.pth \
+        --action move --output_dir organized/
+
+    # Verbose mode with lower threshold
+    python -m src.detect --image test.jpg --model checkpoints/best_model.pth \
+        --verbose --score_threshold 0.1
+
     # Export model
     python -m src.detect --export --model checkpoints/best_model.pth
 """
@@ -19,6 +32,8 @@ import os
 import sys
 import argparse
 from pathlib import Path
+import shutil
+from collections import defaultdict
 
 import torch
 import torchvision.transforms as transforms
@@ -136,8 +151,70 @@ def visualize_predictions(image, predictions, class_names, score_threshold=0.5):
     return img_draw
 
 
+def organize_image_by_class(image_path, predictions, class_names, output_dir, action='nothing'):
+    """
+    Organize image into class-specific subdirectories based on detections.
+
+    Args:
+        image_path (str): Path to the original image
+        predictions (dict): Predictions with 'boxes', 'labels', 'scores'
+        class_names (list): List of class names
+        output_dir (str): Base output directory
+        action (str): 'copy', 'move', or 'nothing'
+
+    Returns:
+        list: List of classes detected in the image
+    """
+    if action == 'nothing':
+        return []
+
+    # Get unique detected classes
+    labels = predictions['labels'].cpu().numpy()
+    detected_classes = set()
+
+    for label in labels:
+        if label < len(class_names):
+            detected_classes.add(class_names[label])
+
+    # If no detections, return empty list
+    if not detected_classes:
+        return []
+
+    # Organize image into class folders
+    filename = os.path.basename(image_path)
+    organized_classes = []
+
+    for class_name in detected_classes:
+        # Create class subdirectory
+        class_dir = os.path.join(output_dir, class_name)
+        os.makedirs(class_dir, exist_ok=True)
+
+        # Destination path
+        dest_path = os.path.join(class_dir, filename)
+
+        try:
+            if action == 'copy':
+                shutil.copy2(image_path, dest_path)
+                organized_classes.append(class_name)
+            elif action == 'move':
+                # For move, only move once (to the first class folder)
+                # For subsequent classes, copy instead
+                if len(organized_classes) == 0:
+                    shutil.move(image_path, dest_path)
+                else:
+                    # Copy from the first destination
+                    first_dest = os.path.join(output_dir, organized_classes[0], filename)
+                    shutil.copy2(first_dest, dest_path)
+                organized_classes.append(class_name)
+        except Exception as e:
+            print(f"  Warning: Failed to {action} image to {class_dir}: {e}")
+            continue
+
+    return organized_classes
+
+
 def detect_image(model, image_path, class_names, device, score_threshold=0.5,
-                save_path=None, show=False, verbose=False):
+                save_path=None, show=False, verbose=False, action='nothing', output_dir='detections'):
     """
     Run detection on a single image.
 
@@ -150,9 +227,11 @@ def detect_image(model, image_path, class_names, device, score_threshold=0.5,
         save_path (str): Path to save visualization
         show (bool): Whether to display the image
         verbose (bool): Show detailed diagnostic information
+        action (str): 'copy', 'move', or 'nothing' - organize images by detected class
+        output_dir (str): Base output directory for organizing images
 
     Returns:
-        dict: Predictions
+        tuple: (predictions dict, list of detected classes)
     """
     # Preprocess image
     image_tensor, original_image = preprocess_image(image_path)
@@ -266,13 +345,22 @@ def detect_image(model, image_path, class_names, device, score_threshold=0.5,
         if show:
             img_with_boxes.show()
 
-    return filtered_predictions
+    # Organize image by detected class
+    detected_classes = organize_image_by_class(image_path, filtered_predictions, class_names, output_dir, action)
+
+    if detected_classes:
+        if action == 'copy':
+            print(f"Copied image to class folders: {', '.join(detected_classes)}")
+        elif action == 'move':
+            print(f"Moved image to class folders: {', '.join(detected_classes)}")
+
+    return filtered_predictions, detected_classes
 
 
 def detect_directory(model, input_dir, output_dir, class_names, device,
-                     score_threshold=0.5, verbose=False):
+                     score_threshold=0.5, verbose=False, action='nothing'):
     """
-    Run detection on all images in a directory.
+    Run detection on all images in a directory (non-recursive).
 
     Args:
         model: Trained model
@@ -282,36 +370,102 @@ def detect_directory(model, input_dir, output_dir, class_names, device,
         device: Device to run on
         score_threshold (float): Minimum score threshold
         verbose (bool): Show detailed diagnostic information
+        action (str): 'copy', 'move', or 'nothing' - organize images by detected class
     """
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Get all image files
+    # Get all image files (non-recursive)
     valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp'}
     image_files = []
 
     for fname in os.listdir(input_dir):
-        ext = os.path.splitext(fname)[1].lower()
-        if ext in valid_extensions:
-            image_files.append(fname)
+        fpath = os.path.join(input_dir, fname)
+        if os.path.isfile(fpath):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in valid_extensions:
+                image_files.append(fname)
 
-    print(f"Found {len(image_files)} images in {input_dir}")
+    print(f"\n{'='*80}")
+    print(f"BATCH PROCESSING")
+    print(f"{'='*80}")
+    print(f"Input directory: {input_dir}")
+    print(f"Output directory: {output_dir}")
+    print(f"Found {len(image_files)} images")
+    print(f"Score threshold: {score_threshold}")
+    print(f"Action: {action}")
+
+    if len(image_files) == 0:
+        print("No images found!")
+        return
+
+    # Statistics tracking
+    stats = {
+        'total_processed': 0,
+        'total_with_detections': 0,
+        'total_without_detections': 0,
+        'class_counts': defaultdict(int),
+        'errors': []
+    }
 
     # Process each image
     for i, fname in enumerate(image_files, 1):
-        print(f"\nProcessing {i}/{len(image_files)}: {fname}")
+        print(f"\n{'='*80}")
+        print(f"Processing {i}/{len(image_files)}: {fname}")
+        print(f"{'='*80}")
 
         image_path = os.path.join(input_dir, fname)
         save_path = os.path.join(output_dir, f"detected_{fname}")
 
         try:
-            detect_image(model, image_path, class_names, device,
-                        score_threshold, save_path=save_path, verbose=verbose)
+            predictions, detected_classes = detect_image(
+                model, image_path, class_names, device,
+                score_threshold, save_path=save_path, verbose=verbose,
+                action=action, output_dir=output_dir
+            )
+
+            stats['total_processed'] += 1
+
+            if len(detected_classes) > 0:
+                stats['total_with_detections'] += 1
+                for class_name in detected_classes:
+                    stats['class_counts'][class_name] += 1
+            else:
+                stats['total_without_detections'] += 1
+
         except Exception as e:
-            print(f"Error processing {fname}: {e}")
+            print(f"✗ Error processing {fname}: {e}")
+            stats['errors'].append((fname, str(e)))
             continue
 
-    print(f"\nProcessing complete! Results saved to: {output_dir}")
+    # Print summary report
+    print(f"\n{'='*80}")
+    print(f"BATCH PROCESSING SUMMARY")
+    print(f"{'='*80}")
+    print(f"Total images processed: {stats['total_processed']}/{len(image_files)}")
+    print(f"Images with detections: {stats['total_with_detections']}")
+    print(f"Images without detections: {stats['total_without_detections']}")
+
+    if stats['class_counts']:
+        print(f"\nDetections per class:")
+        for class_name in sorted(stats['class_counts'].keys()):
+            count = stats['class_counts'][class_name]
+            print(f"  {class_name}: {count} images")
+
+    if stats['errors']:
+        print(f"\nErrors encountered: {len(stats['errors'])}")
+        for fname, error in stats['errors']:
+            print(f"  {fname}: {error}")
+
+    print(f"\nResults saved to: {output_dir}")
+
+    if action != 'nothing' and stats['total_with_detections'] > 0:
+        print(f"\nOrganized images by class:")
+        for class_name in sorted(stats['class_counts'].keys()):
+            class_dir = os.path.join(output_dir, class_name)
+            print(f"  {class_dir}/")
+
+    print(f"{'='*80}")
 
 
 def export_model(model, num_classes, output_dir='exports'):
@@ -395,6 +549,14 @@ def main():
         help='Show detailed diagnostic information including all predictions'
     )
     parser.add_argument(
+        '--action',
+        type=str,
+        choices=['copy', 'move', 'nothing'],
+        default='nothing',
+        help='Organize images by detected class: copy (copy to class folders), '
+             'move (move to class folders), nothing (only save visualizations, default)'
+    )
+    parser.add_argument(
         '--export',
         action='store_true',
         help='Export model to ONNX and TorchScript formats'
@@ -438,13 +600,18 @@ def main():
         # Single image detection
         save_path = os.path.join(args.output_dir, f"detected_{os.path.basename(args.image)}")
         os.makedirs(args.output_dir, exist_ok=True)
-        detect_image(model, args.image, class_names, device,
-                    args.score_threshold, save_path, args.show, args.verbose)
+        predictions, detected_classes = detect_image(
+            model, args.image, class_names, device,
+            args.score_threshold, save_path, args.show, args.verbose,
+            args.action, args.output_dir
+        )
 
     elif args.input_dir:
-        # Directory detection
-        detect_directory(model, args.input_dir, args.output_dir, class_names,
-                        device, args.score_threshold, args.verbose)
+        # Directory detection (batch processing)
+        detect_directory(
+            model, args.input_dir, args.output_dir, class_names,
+            device, args.score_threshold, args.verbose, args.action
+        )
 
     else:
         print("Error: Please specify either --image or --input_dir or --export")
