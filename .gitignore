@@ -8,8 +8,6 @@ dev-debug.log
 
 # Dependency directories
 node_modules/
-annotated_images/
-*.jpg
 
 # Environment variables
 .env
