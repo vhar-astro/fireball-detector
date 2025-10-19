@@ -119,6 +119,20 @@ Creates:
 
 ## ⚙️ Common Configurations
 
+### ✅ RTX 2070 (8GB) - OPTIMIZED (Default)
+
+**Current configuration is optimized for RTX 2070!**
+
+```python
+OD_BATCH_SIZE = 4  # 64.4% GPU utilization (5273 MB)
+OD_MIN_SIZE = 800
+OD_MAX_SIZE = 1333
+OD_TRAINABLE_BACKBONE_LAYERS = 3
+OD_NUM_WORKERS = 6
+```
+
+See `GPU_OPTIMIZATION_RTX2070.md` for detailed profiling results.
+
 ### Low Memory (GPU/CPU)
 
 Edit `src/config.py`:
