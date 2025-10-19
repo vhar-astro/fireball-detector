@@ -292,23 +292,27 @@ def evaluate_model(model, dataloader, device, num_classes, iou_threshold=0.5):
     """
     model.eval()
     all_results = []
-    
+
     with torch.no_grad():
         for images, targets in dataloader:
-            images = images.to(device)
-            
+            # Images is a list of tensors, move each to device
+            images = [img.to(device) for img in images]
+
+            # Targets is also a list of dicts, move each dict's tensors to device
+            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
             # Get predictions
             predictions = model(images)
-            
+
             # Process each image in the batch
-            for i, (pred, target) in enumerate(zip(predictions, targets)):
+            for pred, target in zip(predictions, targets):
                 # Convert YOLO format to xyxy if needed
                 from src.data.object_detection_dataset import yolo_to_xyxy
-                
+
                 gt_boxes = target['boxes']
                 gt_labels = target['labels']
                 orig_size = target['orig_size']
-                
+
                 if len(gt_boxes) > 0:
                     gt_boxes = yolo_to_xyxy(gt_boxes, orig_size[1].item(), orig_size[0].item())
                 
