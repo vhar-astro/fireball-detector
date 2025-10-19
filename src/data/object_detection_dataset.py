@@ -281,8 +281,6 @@ def collate_fn(batch):
         images.append(image)
         targets.append(target)
     
-    images = torch.stack(images, dim=0)
-    
     return images, targets
 
 
