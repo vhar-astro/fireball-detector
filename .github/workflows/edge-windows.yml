@@ -25,7 +25,7 @@ jobs:
       - name: Run edge tests
         run: py -m unittest discover -s tests -v
       - name: Build onedir application
-        run: pyinstaller --clean --noconfirm fireball-edge.spec
+        run: py -m PyInstaller --clean --noconfirm fireball-edge.spec
       - name: Smoke-test packaged CLI
         run: .\dist\fireball-edge\fireball-edge.exe --help
       - uses: actions/upload-artifact@v4

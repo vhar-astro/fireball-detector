@@ -100,7 +100,7 @@ artifacts:
 
 ```powershell
 py -m pip install ".[build]"
-pyinstaller --clean --noconfirm fireball-edge.spec
+py -m PyInstaller --clean --noconfirm fireball-edge.spec
 ```
 
 The output is an `onedir` application at

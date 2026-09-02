@@ -1,4 +1,4 @@
-# Build on Windows: pyinstaller --clean --noconfirm fireball-edge.spec
+# Build on Windows: py -m PyInstaller --clean --noconfirm fireball-edge.spec
 
 from PyInstaller.utils.hooks import collect_dynamic_libs
 
