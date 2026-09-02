@@ -19,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from fireball_edge.__main__ import main
 from fireball_edge import config as edge_config
-from fireball_edge.config import StateRootError, default_state_root, load_config
+from fireball_edge.config import EdgeConfig, StateRootError, default_state_root, load_config
 from fireball_edge.event_id import event_id_for_clip_base, normalize_clip_base
 from fireball_edge.queue import EventQueue, WorkerAlreadyRunningError
 from fireball_edge.worker import EdgeWorker
@@ -75,6 +75,28 @@ class ConfigurationTests(unittest.TestCase):
         parent = Path(os.sep) / "TEMP" / "CAPTURE"
         with mock.patch.object(edge_config.os, "name", "nt"):
             self.assertTrue(edge_config._is_within(child, parent))
+
+    def test_direct_config_canonicalizes_all_runtime_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            capture = temporary / "captures"
+            capture.mkdir()
+            state = temporary / "state"
+            config = EdgeConfig(
+                state_root=state / ".." / "state",
+                monitored_roots=(capture / ".." / "captures",),
+                model_manifest=state / "models" / "active" / "model-manifest.json",
+            )
+            self.assertEqual(state.resolve(strict=False), config.state_root)
+            self.assertEqual(
+                (capture.resolve(strict=False),), config.monitored_roots
+            )
+            self.assertEqual(
+                (state / "models" / "active" / "model-manifest.json").resolve(
+                    strict=False
+                ),
+                config.model_manifest,
+            )
 
 
 class EventIdentityTests(unittest.TestCase):

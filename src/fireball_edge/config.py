@@ -102,6 +102,21 @@ class EdgeConfig:
     telegram_max_attempts: int = 5
 
     def __post_init__(self) -> None:
+        # EdgeConfig is also constructed directly by offline tools and tests,
+        # not only through load_config(). Canonicalising here expands Windows
+        # 8.3 aliases (for example RUNNER~1) before any containment check.
+        resolved_monitored = tuple(_resolved(root) for root in self.monitored_roots)
+        resolved_state = validate_state_root(self.state_root, resolved_monitored)
+        object.__setattr__(self, "state_root", resolved_state)
+        object.__setattr__(self, "monitored_roots", resolved_monitored)
+        if self.model_manifest is not None:
+            resolved_manifest = _resolved(self.model_manifest)
+            models_root = _resolved(resolved_state / "models")
+            if not _is_within(resolved_manifest, models_root):
+                raise StateRootError(
+                    "model_manifest must be stored below state_root/models"
+                )
+            object.__setattr__(self, "model_manifest", resolved_manifest)
         if self.poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
         if self.max_attempts < 1:
