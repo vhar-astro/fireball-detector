@@ -1,0 +1,35 @@
+name: UFOCapture edge Windows
+
+"on":
+  pull_request:
+    paths:
+      - "src/fireball_edge/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "fireball-edge.spec"
+      - "fireball_edge_entry.py"
+      - ".github/workflows/edge-windows.yml"
+  workflow_dispatch:
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install edge and test dependencies
+        run: py -m pip install ".[build]" onnx==1.22.0
+      - name: Run edge tests
+        run: py -m unittest discover -s tests -v
+      - name: Build onedir application
+        run: pyinstaller --clean --noconfirm fireball-edge.spec
+      - name: Smoke-test packaged CLI
+        run: .\dist\fireball-edge\fireball-edge.exe --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fireball-edge-windows
+          path: dist/fireball-edge/
+          if-no-files-found: error

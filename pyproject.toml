@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fireball-edge"
+version = "0.1.0"
+description = "Read-only UFOCapture edge cascade for fireball triage"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy==2.5.2",
+  "onnxruntime==1.29.0",
+  "opencv-python-headless==5.0.0.93",
+]
+
+[project.optional-dependencies]
+training = [
+  "onnx==1.22.0",
+  "onnxscript==0.7.1",
+  "torch==2.13.0",
+  "torchvision==0.28.0",
+]
+build = ["pyinstaller==6.22.2"]
+
+[project.scripts]
+fireball-edge = "fireball_edge.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["fireball_edge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

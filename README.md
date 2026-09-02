@@ -5,6 +5,10 @@ This project provides two machine learning capabilities:
 1. **Image Classification**: Classify entire images into categories (fireballs, meteors, no_fireballs, etc.)
 2. **Object Detection**: Detect and localize objects within images using Faster R-CNN with bounding boxes
 
+The production-oriented UFOCapture cascade is isolated from both legacy paths.
+See [UFOCapture Edge Fireball Triage](docs/UFOCAPTURE_EDGE.md) for its read-only
+capture integration, external queue/state, ONNX runtime, and rollout gates.
+
 ## 🆕 Object Detection (NEW!)
 
 Train a Faster R-CNN model to detect and localize objects in images. Perfect for identifying multiple objects in a single image with precise bounding boxes.
@@ -131,4 +135,3 @@ flowchart
     G <--> I@{ shape: docs, label: "Dataset" }
  
 ```
-

@@ -1,0 +1,20 @@
+{
+  "monitored_roots": [
+    "D:\\UFOCapture\\captures"
+  ],
+  "model_manifest": "models\\active\\model-manifest.json",
+  "worker": {
+    "poll_interval_seconds": 1.0,
+    "max_attempts": 3,
+    "retry_initial_seconds": 2.0,
+    "retry_max_seconds": 30.0,
+    "lock_lease_seconds": 120.0,
+    "max_inference_threads": 2
+  },
+  "telegram": {
+    "enabled": false,
+    "token_env": "FIREBALL_TELEGRAM_BOT_TOKEN",
+    "chat_id_env": "FIREBALL_TELEGRAM_CHAT_ID",
+    "max_attempts": 5
+  }
+}
