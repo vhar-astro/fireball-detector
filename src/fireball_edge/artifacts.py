@@ -9,7 +9,9 @@ from typing import Any, Callable
 
 
 def _fsync_file(path: Path) -> None:
-    with path.open("rb") as source:
+    # Windows' CRT rejects _commit (used by os.fsync) for read-only file
+    # descriptors, even though POSIX accepts fsync on them.
+    with path.open("r+b") as source:
         os.fsync(source.fileno())
 
 

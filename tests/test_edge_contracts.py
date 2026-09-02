@@ -8,11 +8,13 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
+from fireball_edge import artifacts
 from fireball_edge.artifacts import read_committed_result, write_json_atomic
 from fireball_edge.__main__ import main
 from fireball_edge.bundles import discover_bundle
@@ -221,6 +223,18 @@ class ModelManifestTests(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_binary_fsync_reopens_file_with_windows_writable_descriptor(self) -> None:
+        file_handle = mock.MagicMock()
+        opened_handle = file_handle.__enter__.return_value
+        opened_handle.fileno.return_value = 42
+        with (
+            mock.patch.object(Path, "open", return_value=file_handle) as open_file,
+            mock.patch.object(artifacts.os, "fsync") as fsync,
+        ):
+            artifacts._fsync_file(Path("annotation.jpg"))
+        open_file.assert_called_once_with("r+b")
+        fsync.assert_called_once_with(42)
+
     def test_result_json_is_a_reconcilable_commit_marker(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
