@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import sys
 from dataclasses import dataclass, field
@@ -45,6 +46,17 @@ def _resolved(path: str | Path) -> Path:
 
 
 def _is_within(child: Path, parent: Path) -> bool:
+    if os.name == "nt":
+        # pathlib's lexical containment check is case-sensitive even though
+        # Windows path lookup is not. Event IDs deliberately normalise case,
+        # so queued clip bases must be checked with the same semantics.
+        normalized_child = ntpath.normcase(ntpath.normpath(os.fspath(child)))
+        normalized_parent = ntpath.normcase(ntpath.normpath(os.fspath(parent)))
+        try:
+            return ntpath.commonpath((normalized_child, normalized_parent)) == normalized_parent
+        except ValueError:
+            # Different drives cannot contain one another.
+            return False
     try:
         child.relative_to(parent)
     except ValueError:

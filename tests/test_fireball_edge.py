@@ -5,16 +5,20 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import logging
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from fireball_edge.__main__ import main
+from fireball_edge import config as edge_config
 from fireball_edge.config import StateRootError, default_state_root, load_config
 from fireball_edge.event_id import event_id_for_clip_base, normalize_clip_base
 from fireball_edge.queue import EventQueue, WorkerAlreadyRunningError
@@ -65,6 +69,12 @@ class ConfigurationTests(unittest.TestCase):
             )
             with self.assertRaises(StateRootError):
                 load_config(config_path)
+
+    def test_windows_containment_is_case_insensitive(self) -> None:
+        child = Path(os.sep) / "Temp" / "Capture" / "event"
+        parent = Path(os.sep) / "TEMP" / "CAPTURE"
+        with mock.patch.object(edge_config.os, "name", "nt"):
+            self.assertTrue(edge_config._is_within(child, parent))
 
 
 class EventIdentityTests(unittest.TestCase):
@@ -194,6 +204,12 @@ class WorkerAndCliTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(1, main(["worker", "--config", str(self.config_path), "--once"]))
         self.assertIn("model_manifest is required", stderr.getvalue())
+        self.assertFalse(
+            any(
+                getattr(handler, "_fireball_edge_owned", False)
+                for handler in logging.getLogger("fireball_edge").handlers
+            )
+        )
 
 
 if __name__ == "__main__":

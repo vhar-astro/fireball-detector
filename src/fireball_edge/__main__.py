@@ -13,7 +13,7 @@ from .queue import EventQueue, QueueEvent, WorkerAlreadyRunningError
 from .notifications import OutboxDispatcher
 from .pipeline import EventProcessor
 from .worker import EdgeWorker
-from .logging_setup import configure_logging
+from .logging_setup import close_logging, configure_logging
 
 
 def _event_document(event: QueueEvent) -> dict[str, object]:
@@ -75,6 +75,7 @@ def _execute(argv: list[str] | None = None) -> int:
             dispatcher = OutboxDispatcher(queue, config) if config.telegram_enabled else None
             processed = EdgeWorker(queue, config, dispatcher).run(processor, once=args.once)
         finally:
+            close_logging()
             os.chdir(previous_directory)
     except WorkerAlreadyRunningError as error:
         print(str(error), file=sys.stderr)
