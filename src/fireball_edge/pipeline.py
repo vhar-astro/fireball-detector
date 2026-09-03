@@ -9,20 +9,21 @@ from typing import Any
 from .artifacts import read_committed_result, write_image_atomic, write_json_atomic
 from .bundles import discover_bundle
 from .config import EdgeConfig
+from .contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from .inference import OnnxCandidateModel, load_model
+from .offline.ufocapture import validate_xml_provenance
 from .queue import QueueEvent
 from .vision import (
     InvalidMediaError,
     extract_candidate,
-    load_map_background,
     measure_temporal_features,
     prepare_roi,
-    read_peak_or_avi_frame,
+    read_stack_or_avi_composite,
     write_annotated_image,
 )
 
 
-RESULT_SCHEMA_VERSION = 1
+RESULT_SCHEMA_VERSION = SCHEMA_VERSION
 
 
 class EventProcessor:
@@ -44,7 +45,10 @@ class EventProcessor:
             raise InvalidMediaError("AVI is required for temporal fireball features")
         source_identity = bundle.source_identity()
 
-        output_directory = self.config.state_root / "results" / event.event_id
+        # Keep v1 artifacts intact while v2 rebuilds an event with the same
+        # stable ID. Schema-versioned result directories are never migrated or
+        # overwritten in place.
+        output_directory = self.config.state_root / "results" / "v2" / event.event_id
         result_path = output_directory / "result.json"
         cached = read_committed_result(
             result_path,
@@ -58,15 +62,17 @@ class EventProcessor:
         if cached is not None:
             return cached
 
+        # Candidate locations and all temporal values come solely from the
+        # AVI.  Classifier pixels come from a valid P stack, or a maximum AVI
+        # composite at runtime if the stack is unavailable.  In particular,
+        # M.bmp is not opened anywhere in the scoring path.
         extraction = extract_candidate(bundle)
-        representative = read_peak_or_avi_frame(bundle)
+        stack = read_stack_or_avi_composite(bundle)
+        representative = stack.image
         height, width = representative.shape[:2]
-        map_background = load_map_background(bundle.change_map, (width, height))
         scored_candidates: list[dict[str, Any]] = []
         for region in extraction.regions:
-            temporal = measure_temporal_features(
-                bundle.avi, region, map_background=map_background
-            )
+            temporal = measure_temporal_features(bundle.avi, region)
             input_tensor = prepare_roi(
                 representative, region, size=self.model.manifest.image_size
             )
@@ -112,22 +118,30 @@ class EventProcessor:
             "candidates": scored_candidates,
             "candidate_extraction": {
                 "source": region.source,
-                "used_change_map": extraction.used_change_map,
-                "fallback_reason": extraction.fallback_reason,
+                "candidate_count": len(extraction.regions),
             },
             "model_version": self.model.manifest.model_version,
             "model_sha256": self.model.manifest.model_sha256,
             "model_manifest_sha256": self.model.manifest.manifest_sha256,
             "quantization": self.model.manifest.quantization,
-            "candidate_extractor": "change-map-red-v1-with-avi-fallback",
+            "candidate_extractor": CANDIDATE_EXTRACTOR,
             "source_identity": source_identity,
-            "sidecars_used": bundle.sidecars_used(),
-            "scoring_sidecars": [
-                str(path)
-                for path in (bundle.avi, bundle.peak, bundle.change_map)
-                if path is not None
-            ],
-            "xml_role": "provenance_only" if bundle.xml is not None else "absent",
+            # Source provenance lists the complete capture bundle.  Scoring
+            # provenance is intentionally narrower: AVI plus a selected P
+            # stack only.  When the stack is reconstructed, AVI is the sole
+            # scored sidecar and appears once.
+            "source_provenance": bundle.source_files(),
+            "scoring_sidecars": list(
+                dict.fromkeys(
+                    str(path)
+                    for path in (bundle.avi, stack.selected_path)
+                    if path is not None
+                )
+            ),
+            "stack_image_source": stack.source,
+            "star_mask_role": "provenance_only" if bundle.star_mask else "absent",
+            "xml_role": "validation_only" if bundle.xml is not None else "absent",
+            "xml_validation": validate_xml_provenance(bundle.xml),
             "processing_time_ms": elapsed_ms,
             "capture_to_result_ms": capture_to_result_ms,
             "scientific_status": "uncalibrated",

@@ -5,13 +5,15 @@ from __future__ import annotations
 import csv
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
 
 from ..artifacts import write_json_atomic
 from ..bundles import discover_bundle, normalize_clip_base
+from ..contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from ..inference import sha256_file
+from .ufocapture import BundlePreflightError, preflight_bundle
 
 
 VALID_LABELS = frozenset({"fireball", "non_fireball"})
@@ -28,9 +30,15 @@ class ManifestRecord:
     label: str
     nuisance_tags: tuple[str, ...]
     avi: str
-    peak: str | None
-    change_map: str | None
-    xml: str | None
+    stack_image: str
+    star_mask: str | None
+    xml: str
+    star_mask_role: str
+    xml_validation: str
+    capture_metadata: dict[str, object]
+    metadata_warnings: tuple[str, ...]
+    source_identity: dict[str, dict[str, int | str]] = field(default_factory=dict)
+    source_sha256: dict[str, str] = field(default_factory=dict)
 
 
 def _event_id(physical_event_id: str, station: str, camera: str, clip_base: Path) -> str:
@@ -44,15 +52,7 @@ def load_expert_labels(path: str | Path) -> list[dict[str, str]]:
     label_path = Path(path).expanduser().resolve(strict=True)
     with label_path.open("r", encoding="utf-8-sig", newline="") as source:
         reader = csv.DictReader(source)
-        required = {
-            "clip_base",
-            "label",
-            "physical_event_id",
-            "station",
-            "camera",
-            "night",
-            "nuisance_tags",
-        }
+        required = {"clip_base", "label", "physical_event_id", "nuisance_tags"}
         missing = required - set(reader.fieldnames or ())
         if missing:
             raise ValueError(f"expert-label CSV is missing: {', '.join(sorted(missing))}")
@@ -71,17 +71,32 @@ def build_records(rows: Iterable[dict[str, str]]) -> list[ManifestRecord]:
         label = row["label"].strip().casefold()
         if label not in VALID_LABELS:
             raise ValueError(f"row {row_number}: label must be fireball or non_fireball")
-        required_values = ("clip_base", "physical_event_id", "station", "camera", "night")
+        required_values = ("clip_base", "physical_event_id")
         empty = [name for name in required_values if not row[name].strip()]
         if empty:
             raise ValueError(f"row {row_number}: empty values: {', '.join(empty)}")
         bundle = discover_bundle(row["clip_base"])
-        if bundle.avi is None:
-            raise ValueError(f"row {row_number}: complete bundle requires an AVI")
+        try:
+            preflight = preflight_bundle(bundle)
+        except BundlePreflightError as exc:
+            raise ValueError(f"row {row_number}: {exc}") from exc
+        bundle = preflight.bundle
+        metadata = preflight.metadata
+        assertions = {
+            "station": metadata.station,
+            "camera": metadata.camera,
+            "night": metadata.camera_night,
+        }
+        for name, derived in assertions.items():
+            supplied = row.get(name, "").strip()
+            if supplied and supplied != derived:
+                raise ValueError(
+                    f"row {row_number}: {name} assertion {supplied!r} does not match XML-derived {derived!r}"
+                )
         observation_key = (
             row["physical_event_id"].strip(),
-            row["station"].strip(),
-            row["camera"].strip(),
+            metadata.station,
+            metadata.camera,
         )
         if observation_key in seen_observations:
             raise ValueError(f"row {row_number}: duplicate physical-event/station/camera")
@@ -94,15 +109,23 @@ def build_records(rows: Iterable[dict[str, str]]) -> list[ManifestRecord]:
                 event_id=_event_id(*observation_key, bundle.clip_base),
                 clip_base=str(bundle.clip_base),
                 physical_event_id=observation_key[0],
-                station=observation_key[1],
-                camera=observation_key[2],
-                night=row["night"].strip(),
+                station=metadata.station,
+                camera=metadata.camera,
+                night=metadata.camera_night,
                 label=label,
                 nuisance_tags=tags,
                 avi=str(bundle.avi),
-                peak=str(bundle.peak) if bundle.peak else None,
-                change_map=str(bundle.change_map) if bundle.change_map else None,
-                xml=str(bundle.xml) if bundle.xml else None,
+                stack_image=str(bundle.stack_image),
+                star_mask=str(bundle.star_mask) if bundle.star_mask else None,
+                xml=str(bundle.xml),
+                star_mask_role="provenance_only",
+                xml_validation="valid",
+                capture_metadata=metadata.as_dict(),
+                metadata_warnings=preflight.warnings,
+                source_identity=bundle.source_identity(),
+                source_sha256={
+                    path: sha256_file(path) for path in bundle.source_files()
+                },
             )
         )
     if not records:
@@ -116,6 +139,9 @@ def write_manifest(path: str | Path, records: Iterable[ManifestRecord]) -> Path:
     serialized = [asdict(record) for record in records]
     groups: dict[str, set[str]] = {}
     for record in serialized:
+        required_sources = {record["avi"], record["stack_image"], record["xml"]}
+        if not required_sources.issubset(record["source_sha256"]):
+            raise ValueError("manifest records must hash AVI, selected stack, and XML")
         groups.setdefault(record["physical_event_id"], set()).add(record["label"])
     conflicts = [group for group, labels in groups.items() if len(labels) > 1]
     if conflicts:
@@ -125,12 +151,47 @@ def write_manifest(path: str | Path, records: Iterable[ManifestRecord]) -> Path:
     return write_json_atomic(
         path,
         {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
+            "candidate_extractor": CANDIDATE_EXTRACTOR,
             "grouping_key": "physical_event_id",
             "label_source": "human_expert",
             "records": serialized,
         },
     )
+
+
+def read_manifest(path: str | Path) -> list[ManifestRecord]:
+    """Load only an exact schema-v2 manifest; v1 datasets must be rebuilt."""
+
+    with Path(path).open("r", encoding="utf-8") as source:
+        document = json.load(source)
+    if (
+        not isinstance(document, dict)
+        or document.get("schema_version") != SCHEMA_VERSION
+        or document.get("candidate_extractor") != CANDIDATE_EXTRACTOR
+    ):
+        raise ValueError("unsupported manifest schema or candidate extractor; rebuild with v2")
+    raw_records = document.get("records")
+    if not isinstance(raw_records, list):
+        raise ValueError("manifest records must be a list")
+    try:
+        records = [
+            ManifestRecord(
+                **{
+                    **item,
+                    "nuisance_tags": tuple(item.get("nuisance_tags", [])),
+                    "metadata_warnings": tuple(item.get("metadata_warnings", [])),
+                }
+            )
+            for item in raw_records
+        ]
+        for record in records:
+            required_sources = {record.avi, record.stack_image, record.xml}
+            if not required_sources.issubset(record.source_sha256):
+                raise ValueError("manifest record is missing required source hashes")
+        return records
+    except (TypeError, AttributeError) as exc:
+        raise ValueError(f"invalid manifest record: {exc}") from exc
 
 
 def snapshot_tree(root: str | Path) -> dict[str, object]:

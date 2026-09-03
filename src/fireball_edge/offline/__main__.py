@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..artifacts import write_json_atomic
 from ..config import load_config
+from ..contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from .evaluation import (
     load_predictions,
     locked_report,
@@ -16,8 +17,14 @@ from .evaluation import (
     select_possible_threshold,
     select_probable_threshold,
 )
-from .manifest import build_records, load_expert_labels, snapshot_tree, write_manifest
-from .manifest import ManifestRecord
+from .manifest import (
+    build_records,
+    load_expert_labels,
+    read_manifest,
+    snapshot_tree,
+    write_manifest,
+)
+from .orchestrator import run_training
 from .splits import assign_grouped_partitions
 
 
@@ -36,6 +43,25 @@ def parser() -> argparse.ArgumentParser:
     manifest.add_argument("--config", required=True, type=Path)
     manifest.add_argument("--labels", required=True, type=Path)
     manifest.add_argument("--name", required=True)
+
+    preflight = commands.add_parser("preflight")
+    preflight.add_argument("--config", required=True, type=Path)
+    preflight.add_argument("--labels", required=True, type=Path)
+    preflight.add_argument("--name", required=True)
+
+    train = commands.add_parser("train")
+    train.add_argument("--config", required=True, type=Path)
+    train.add_argument("--labels", required=True, type=Path)
+    train.add_argument("--name", required=True)
+    train.add_argument("--model-name", required=True)
+    train.add_argument("--locked-night", action="append", default=[])
+    train.add_argument("--locked-camera", action="append", default=[])
+    train.add_argument("--resume", action="store_true")
+    train.add_argument("--folds", type=int, default=5)
+    train.add_argument("--epochs", type=int, default=12)
+    train.add_argument("--batch-size", type=int, default=32)
+    train.add_argument("--learning-rate", type=float, default=3e-4)
+    train.add_argument("--seed", type=int, default=1729)
 
     snapshot = commands.add_parser("snapshot-sources")
     snapshot.add_argument("--config", required=True, type=Path)
@@ -81,14 +107,59 @@ def execute(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    if args.command == "build-manifest":
+    if args.command == "train":
+        config = load_config(args.config)
+        output = run_training(
+            config,
+            labels_path=args.labels,
+            dataset_name=args.name,
+            model_name=args.model_name,
+            locked_nights=set(args.locked_night),
+            locked_cameras=set(args.locked_camera),
+            resume=args.resume,
+            folds=args.folds,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            seed=args.seed,
+        )
+    elif args.command in {"build-manifest", "preflight"}:
+        relative = (
+            Path("datasets") / args.name / "manifest-v2.json"
+            if args.command == "build-manifest"
+            else Path("validation") / f"{args.name}-preflight-v2.json"
+        )
         config, output = _external_output(
-            args.config, Path("datasets") / args.name / "manifest.json"
+            args.config, relative
         )
         records = build_records(load_expert_labels(args.labels))
         for record in records:
             config.validate_clip_base(record.clip_base)  # type: ignore[attr-defined]
-        write_manifest(output, records)
+        if args.command == "build-manifest":
+            write_manifest(output, records)
+        else:
+            write_json_atomic(
+                output,
+                {
+                    "schema_version": SCHEMA_VERSION,
+                    "candidate_extractor": CANDIDATE_EXTRACTOR,
+                    "status": "passed",
+                    "records": [
+                        {
+                            "event_id": record.event_id,
+                            "clip_base": record.clip_base,
+                            "station": record.station,
+                            "camera": record.camera,
+                            "night": record.night,
+                            "stack_image": record.stack_image,
+                            "star_mask_role": record.star_mask_role,
+                            "xml_validation": record.xml_validation,
+                            "warnings": list(record.metadata_warnings),
+                        }
+                        for record in records
+                    ],
+                },
+            )
     elif args.command == "snapshot-sources":
         config, output = _external_output(
             args.config, Path("validation") / f"{args.name}-source-snapshot.json"
@@ -97,19 +168,9 @@ def execute(argv: list[str] | None = None) -> int:
         write_json_atomic(output, snapshot_tree(args.root))
     elif args.command == "split-manifest":
         _, output = _external_output(
-            args.config, Path("datasets") / args.name / "partitioned-manifest.json"
+            args.config, Path("datasets") / args.name / "partitioned-manifest-v2.json"
         )
-        with args.manifest.open("r", encoding="utf-8") as source:
-            raw_records = json.load(source)["records"]
-        records = [
-            ManifestRecord(
-                **{
-                    **item,
-                    "nuisance_tags": tuple(item.get("nuisance_tags", [])),
-                }
-            )
-            for item in raw_records
-        ]
+        records = read_manifest(args.manifest)
         assigned = assign_grouped_partitions(
             records,
             locked_nights=set(args.locked_night),
@@ -119,7 +180,8 @@ def execute(argv: list[str] | None = None) -> int:
         write_json_atomic(
             output,
             {
-                "schema_version": 1,
+                "schema_version": SCHEMA_VERSION,
+                "candidate_extractor": CANDIDATE_EXTRACTOR,
                 "grouping_key": "physical_event_id",
                 "locked_selection": {
                     "nights": args.locked_night,
@@ -130,7 +192,7 @@ def execute(argv: list[str] | None = None) -> int:
         )
     else:
         _, output = _external_output(
-            args.config, Path("validation") / f"{args.name}-evaluation.json"
+            args.config, Path("validation") / f"{args.name}-evaluation-v2.json"
         )
         oof = load_predictions(args.oof)
         possible = select_possible_threshold(oof)
@@ -139,7 +201,8 @@ def execute(argv: list[str] | None = None) -> int:
             probable = possible
         locked = load_predictions(args.locked)
         report = {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
+            "candidate_extractor": CANDIDATE_EXTRACTOR,
             "possible_threshold": possible,
             "probable_threshold": probable,
             "selection": {

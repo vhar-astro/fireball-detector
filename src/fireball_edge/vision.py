@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .bundles import EventBundle
+from .bundles import EventBundle, stack_image_candidates
 
 
 class VisionDependencyError(RuntimeError):
@@ -42,8 +42,6 @@ class CandidateRegion:
     changed_pixels: int
     score: float
     source: str
-    map_background_brightness: float = 0.0
-    map_brightness_above_background: float = 0.0
 
     @property
     def x2(self) -> int:
@@ -78,12 +76,23 @@ class TemporalFeatures:
 @dataclass(frozen=True)
 class CandidateExtraction:
     regions: tuple[CandidateRegion, ...]
-    used_change_map: bool
-    fallback_reason: str | None = None
 
     @property
     def region(self) -> CandidateRegion:
         return self.regions[0]
+
+
+@dataclass(frozen=True)
+class StackImage:
+    """Pixels used to crop classifier ROIs and their auditable origin."""
+
+    image: Any
+    selected_path: Path | None
+    source: str
+
+    @property
+    def is_avi_composite(self) -> bool:
+        return self.selected_path is None
 
 
 def _regions_from_signal(
@@ -93,7 +102,6 @@ def _regions_from_signal(
     threshold: int,
     min_pixels: int,
     padding_fraction: float,
-    background: Any | None = None,
 ) -> list[CandidateRegion]:
     cv2, np = _vision_deps()
     if signal.ndim != 2 or signal.size == 0:
@@ -115,19 +123,6 @@ def _regions_from_signal(
         bottom = min(height, y + box_height + padding)
         local = signal[y : y + box_height, x : x + box_width]
         mean_signal = float(local[local >= threshold].mean()) if area else 0.0
-        local_background = (
-            background[y : y + box_height, x : x + box_width]
-            if background is not None
-            else None
-        )
-        background_brightness = (
-            float(local_background.mean()) if local_background is not None else 0.0
-        )
-        above_background = (
-            float(np.maximum(local.astype(np.float32) - local_background, 0.0).mean())
-            if local_background is not None
-            else 0.0
-        )
         candidates.append(
             CandidateRegion(
                 x=left,
@@ -137,82 +132,10 @@ def _regions_from_signal(
                 changed_pixels=area,
                 score=float(area * mean_signal),
                 source=source,
-                map_background_brightness=background_brightness,
-                map_brightness_above_background=above_background,
             )
         )
     candidates.sort(key=lambda item: item.score, reverse=True)
     return candidates
-
-
-def candidate_from_change_map(
-    path: str | Path,
-    *,
-    absolute_red_threshold: int = 24,
-    min_pixels: int = 12,
-    padding_fraction: float = 0.15,
-) -> CandidateRegion:
-    """Extract the strongest ROI from the red changed-pixel map channel.
-
-    UFOCapture already defines nonzero red as pixels that passed its change
-    detector, so red alone drives candidate membership. Green is retained as
-    long-term background evidence for scoring. Blue is a capture mask and is
-    deliberately not interpreted as brightness.
-    """
-
-    cv2, np = _vision_deps()
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    if image is None or image.ndim != 3 or image.shape[2] < 3:
-        raise InvalidMediaError(f"invalid change map: {path}")
-    red = image[:, :, 2].astype(np.int16)
-    # UFOCapture documents G as the long-term averaged brightness. B is an
-    # area/scintillation mask, so it must not be treated as background light.
-    background = image[:, :, 1].astype(np.int16)
-    detected = red.astype(np.uint8)
-    detected[red < absolute_red_threshold] = 0
-    regions = _regions_from_signal(
-        detected,
-        source="change_map_red_channel",
-        threshold=absolute_red_threshold,
-        min_pixels=min_pixels,
-        padding_fraction=padding_fraction,
-        background=background,
-    )
-    if not regions:
-        raise InvalidMediaError(f"change map contains no valid candidate: {path}")
-    return regions[0]
-
-
-def candidate_regions_from_change_map(
-    path: str | Path,
-    *,
-    max_candidates: int = 3,
-    expected_dimensions: tuple[int, int] | None = None,
-) -> tuple[CandidateRegion, ...]:
-    cv2, np = _vision_deps()
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    if image is None or image.ndim != 3 or image.shape[2] < 3:
-        raise InvalidMediaError(f"invalid change map: {path}")
-    if expected_dimensions is not None and (image.shape[1], image.shape[0]) != expected_dimensions:
-        raise InvalidMediaError(
-            f"change map dimensions {(image.shape[1], image.shape[0])} do not match AVI "
-            f"{expected_dimensions}"
-        )
-    red = image[:, :, 2].astype(np.int16)
-    background = image[:, :, 1].astype(np.int16)
-    detected = red.astype(np.uint8)
-    detected[red < 24] = 0
-    regions = _regions_from_signal(
-        detected,
-        source="change_map_red_channel",
-        threshold=24,
-        min_pixels=12,
-        padding_fraction=0.15,
-        background=background,
-    )
-    if not regions:
-        raise InvalidMediaError(f"change map contains no valid candidate: {path}")
-    return tuple(regions[:max_candidates])
 
 
 def candidate_from_avi(
@@ -222,46 +145,30 @@ def candidate_from_avi(
     min_pixels: int = 12,
     padding_fraction: float = 0.15,
 ) -> CandidateRegion:
-    """Fall back to a max sequential-frame-difference signal."""
+    """Return the strongest candidate from sequential AVI differences only."""
 
-    cv2, np = _vision_deps()
-    capture = cv2.VideoCapture(str(path))
-    if not capture.isOpened():
-        raise InvalidMediaError(f"cannot open AVI: {path}")
-    previous = None
-    maximum = None
-    decoded = 0
-    try:
-        while True:
-            ok, frame = capture.read()
-            if not ok:
-                break
-            decoded += 1
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            if previous is not None:
-                difference = cv2.absdiff(gray, previous)
-                maximum = difference if maximum is None else np.maximum(maximum, difference)
-            previous = gray
-    finally:
-        capture.release()
-    if decoded < 2 or maximum is None:
-        raise InvalidMediaError(f"AVI has fewer than two decodable frames: {path}")
-    regions = _regions_from_signal(
-        maximum,
-        source="avi_frame_difference",
-        threshold=difference_threshold,
+    return candidate_regions_from_avi(
+        path,
+        max_candidates=1,
+        difference_threshold=difference_threshold,
         min_pixels=min_pixels,
         padding_fraction=padding_fraction,
-    )
-    if not regions:
-        raise InvalidMediaError(f"AVI contains no valid changed region: {path}")
-    return regions[0]
+    )[0]
 
 
 def candidate_regions_from_avi(
-    path: str | Path, *, max_candidates: int = 3
+    path: str | Path,
+    *,
+    max_candidates: int = 3,
+    difference_threshold: int = 18,
+    min_pixels: int = 12,
+    padding_fraction: float = 0.15,
 ) -> tuple[CandidateRegion, ...]:
-    """Return retained frame-difference regions using one streamed pass."""
+    """Return up to three candidates from sequential AVI differences.
+
+    This is intentionally the only candidate-source implementation in v2.
+    The M.bmp star mask is not an input and is not even opened here.
+    """
     cv2, np = _vision_deps()
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
@@ -285,10 +192,10 @@ def candidate_regions_from_avi(
         raise InvalidMediaError(f"AVI has fewer than two decodable frames: {path}")
     regions = _regions_from_signal(
         maximum,
-        source="avi_frame_difference",
-        threshold=18,
-        min_pixels=12,
-        padding_fraction=0.15,
+        source="avi_sequential_difference",
+        threshold=difference_threshold,
+        min_pixels=min_pixels,
+        padding_fraction=padding_fraction,
     )
     if not regions:
         raise InvalidMediaError(f"AVI contains no valid changed region: {path}")
@@ -296,40 +203,9 @@ def candidate_regions_from_avi(
 
 
 def extract_candidate(bundle: EventBundle) -> CandidateExtraction:
-    """Prefer the change map and explicitly record any AVI fallback."""
-
-    fallback_reason: str | None = None
-    expected_dimensions = None
-    if bundle.avi is not None:
-        cv2, _ = _vision_deps()
-        capture = cv2.VideoCapture(str(bundle.avi))
-        try:
-            if capture.isOpened():
-                width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                if width > 0 and height > 0:
-                    expected_dimensions = (width, height)
-        finally:
-            capture.release()
-    if bundle.change_map is not None:
-        try:
-            return CandidateExtraction(
-                candidate_regions_from_change_map(
-                    bundle.change_map, expected_dimensions=expected_dimensions
-                ),
-                True,
-            )
-        except InvalidMediaError as exc:
-            fallback_reason = str(exc)
-    else:
-        fallback_reason = "change map is missing"
     if bundle.avi is None:
-        raise InvalidMediaError(f"{fallback_reason}; AVI fallback is missing")
-    return CandidateExtraction(
-        candidate_regions_from_avi(bundle.avi),
-        False,
-        fallback_reason=fallback_reason,
-    )
+        raise InvalidMediaError("AVI is required for v2 candidate extraction")
+    return CandidateExtraction(candidate_regions_from_avi(bundle.avi))
 
 
 def measure_temporal_features(
@@ -338,9 +214,13 @@ def measure_temporal_features(
     *,
     activity_threshold: float = 12.0,
     saturation_threshold: int = 250,
-    map_background: Any | None = None,
 ) -> TemporalFeatures:
-    """Stream the AVI once and measure morphology inside the candidate ROI."""
+    """Measure temporal features from sequential AVI frames only.
+
+    Candidate extraction uses frame-to-frame differences, while temporal
+    brightness uses a slowly updated background learned solely from AVI frames.
+    A star-mask or XML field must never influence either calculation.
+    """
 
     cv2, np = _vision_deps()
     capture = cv2.VideoCapture(str(avi_path))
@@ -369,20 +249,19 @@ def measure_temporal_features(
             if roi.size == 0:
                 continue
             gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
-            if map_background is not None:
-                reference = map_background[y1:y2, x1:x2].astype(np.float32)
-                if reference.shape != gray.shape:
-                    raise InvalidMediaError("map background dimensions do not match the AVI")
-            else:
-                if running_background is None:
-                    running_background = gray.copy()
-                reference = running_background
-            excess = np.maximum(gray - reference, 0.0)
-            if map_background is None:
-                stable = excess < activity_threshold
-                running_background[stable] = (
-                    0.98 * running_background[stable] + 0.02 * gray[stable]
+            if running_background is None:
+                running_background = gray.copy()
+                profiles.append(0.0)
+                saturation_fractions.append(
+                    float((roi >= saturation_threshold).any(axis=2).mean())
                 )
+                continue
+            difference = np.abs(gray - running_background)
+            excess = np.maximum(gray - running_background, 0.0)
+            stable = difference < activity_threshold
+            running_background[stable] = (
+                0.98 * running_background[stable] + 0.02 * gray[stable]
+            )
             bright_mask = excess >= activity_threshold
             active_pixels = int(bright_mask.sum())
             mean_excess = float(excess[bright_mask].mean()) if active_pixels else 0.0
@@ -439,45 +318,26 @@ def measure_temporal_features(
     )
 
 
-def load_map_background(
-    path: str | Path | None, expected_dimensions: tuple[int, int]
-) -> Any | None:
-    """Return UFOCapture's green long-term-average channel when valid."""
-
-    if path is None:
-        return None
+def _avi_dimensions(path: str | Path) -> tuple[int, int]:
     cv2, _ = _vision_deps()
-    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
-    if image is None or (image.shape[1], image.shape[0]) != expected_dimensions:
-        return None
-    return image[:, :, 1]
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            raise InvalidMediaError(f"cannot open AVI: {path}")
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    finally:
+        capture.release()
+    if width <= 0 or height <= 0:
+        raise InvalidMediaError(f"AVI has invalid geometry: {path}")
+    return width, height
 
 
-def read_peak_or_avi_frame(bundle: EventBundle) -> Any:
-    """Load the peak-hold image, or build a streamed maximum composite."""
-
+def _maximum_composite(avi_path: str | Path) -> Any:
     cv2, _ = _vision_deps()
-    expected_dimensions = None
-    if bundle.avi is not None:
-        metadata = cv2.VideoCapture(str(bundle.avi))
-        try:
-            if metadata.isOpened():
-                width = int(metadata.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(metadata.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                if width > 0 and height > 0:
-                    expected_dimensions = (width, height)
-        finally:
-            metadata.release()
-    if bundle.peak is not None:
-        image = cv2.imread(str(bundle.peak), cv2.IMREAD_COLOR)
-        if image is not None and (
-            expected_dimensions is None
-            or (image.shape[1], image.shape[0]) == expected_dimensions
-        ):
-            return image
-    if bundle.avi is None:
-        raise InvalidMediaError("neither a valid peak-hold image nor AVI is available")
-    capture = cv2.VideoCapture(str(bundle.avi))
+    capture = cv2.VideoCapture(str(avi_path))
+    if not capture.isOpened():
+        raise InvalidMediaError(f"cannot open AVI: {avi_path}")
     maximum = None
     try:
         while True:
@@ -488,8 +348,37 @@ def read_peak_or_avi_frame(bundle: EventBundle) -> Any:
     finally:
         capture.release()
     if maximum is None:
-        raise InvalidMediaError(f"AVI has no decodable frame: {bundle.avi}")
+        raise InvalidMediaError(f"AVI has no decodable frame: {avi_path}")
     return maximum
+
+
+def read_stack_or_avi_composite(bundle: EventBundle) -> StackImage:
+    """Select a valid P stack, otherwise reconstruct one from the AVI.
+
+    Runtime deliberately tolerates a missing, corrupt, or geometry-mismatched
+    P stack.  Training preflight is stricter and rejects that bundle.  M.bmp is
+    not considered at all.
+    """
+
+    if bundle.avi is None:
+        raise InvalidMediaError("AVI is required to select classifier pixels")
+    cv2, _ = _vision_deps()
+    expected_dimensions = _avi_dimensions(bundle.avi)
+    for path in stack_image_candidates(bundle):
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image is not None and (image.shape[1], image.shape[0]) == expected_dimensions:
+            return StackImage(image=image, selected_path=path, source="p_stack")
+    return StackImage(
+        image=_maximum_composite(bundle.avi),
+        selected_path=None,
+        source="avi_maximum_composite",
+    )
+
+
+def read_peak_or_avi_frame(bundle: EventBundle) -> Any:
+    """Compatibility wrapper for v1 callers; uses only v2 stack semantics."""
+
+    return read_stack_or_avi_composite(bundle).image
 
 
 def prepare_roi(image: Any, region: CandidateRegion, size: int = 224) -> Any:

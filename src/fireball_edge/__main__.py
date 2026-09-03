@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from .config import EdgeConfig, load_config
+from .contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from .queue import EventQueue, QueueEvent, WorkerAlreadyRunningError
 from .notifications import OutboxDispatcher
 from .pipeline import EventProcessor
@@ -59,7 +60,11 @@ def _execute(argv: list[str] | None = None) -> int:
     if args.command == "enqueue":
         assert clip_base is not None
         clip_base = config.validate_clip_base(clip_base)
-        event = queue.enqueue(clip_base)
+        event = queue.enqueue(
+            clip_base,
+            required_schema_version=SCHEMA_VERSION,
+            candidate_extractor=CANDIDATE_EXTRACTOR,
+        )
         print(json.dumps(_event_document(event), sort_keys=True))
         return 0
 

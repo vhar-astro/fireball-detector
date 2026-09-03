@@ -21,7 +21,7 @@ jobs:
           python-version: "3.13"
           cache: pip
       - name: Install edge and test dependencies
-        run: py -m pip install ".[build]" onnx==1.22.0
+        run: py -m pip install ".[build,training]"
       - name: Run edge tests
         run: py -m unittest discover -s tests -v
       - name: Build onedir application

@@ -10,27 +10,31 @@ after an inference result is complete.
 1. UFOCapture's capture-end action calls `fireball-edge enqueue --clip-base ...`.
 2. Enqueue normalizes the clip base and idempotently inserts it in an external
    SQLite queue. It does not decode or modify source media.
-3. The single-instance worker prefers the red detected-pixel channel of
-   `*M.bmp`. The green long-term average is retained as background evidence,
-   while the blue area/scintillation mask is not treated as brightness. A missing, corrupt,
-   empty, or dimensionally invalid map triggers streamed AVI frame differencing.
+3. The single-instance worker streams sequential AVI frame differences as the
+   sole candidate source and retains at most three regions. `*M.bmp` is an
+   optional star-mask provenance file and is never opened for scoring.
 4. The worker measures duration, motion, linearity, saturation, brightness over
    local background, halo growth, and temporal peak from sequential AVI frames.
-5. Up to three retained candidate ROIs are aspect-fit and median-padded to the
-   model input. An ONNX MobileNetV3-Small score is combined with named temporal
-   and geometric features by the manifest-bound calibrator.
+5. Candidate ROIs are cropped from a valid `*P.bmp` stack, or `*P.jpg` when the
+   BMP is absent or unreadable. Runtime reconstructs a maximum composite from
+   AVI when neither stack is usable. ROIs are aspect-fit and median-padded to
+   the model input, then an ONNX MobileNetV3-Small score is combined with named
+   AVI-temporal and geometric features by the manifest-bound calibrator.
 6. The highest candidate score produces `no_alert`, `possible_fireball`, or
    `probable_fireball`. The latter two enter the Telegram outbox.
 7. The annotated image is atomically published under external state, followed
-   by `result.json` as the commit marker, then the SQLite event is completed.
+   by `result.json` as the commit marker under `results/v2/<event-id>/`, then
+   the SQLite event is completed. Legacy complete queue rows are archived and
+   requeued; their v1 result files are left untouched.
 
-UFOCapture documents `*M.bmp` as R=detected change, G=long-term average
-brightness, and B=area/scintillation mask, and documents the capture-end action
-as receiving the completed clip name:
+UFOCapture documents the capture-end action as receiving the completed clip name:
 <https://sonotaco.com/soft/UFO2/help/english/3-3.html>.
 
-XML is listed in `sidecars_used` for provenance only and is excluded from
-`scoring_sidecars` and every scoring interface. The result always has
+All discovered bundle files are listed in `source_provenance`. Only AVI and the
+selected P stack are listed in `scoring_sidecars`; a reconstructed stack lists
+AVI once. XML is parsed for capture validation and grouping metadata, while its
+values are excluded from every scoring interface. The result records
+`star_mask_role: "provenance_only"`, XML validation status, and
 `scientific_status: "uncalibrated"`. The score is a triage probability, not a
 physical brightness measurement. The IAU's fireball definition depends on
 absolute visual magnitude as seen from 100 km, which this edge camera alone does
@@ -52,7 +56,9 @@ in `monitored_roots`; overlap in either direction with state is rejected before
 the queue is created. Keep `state_root` on a local disk; SQLite WAL and the OS
 worker lock are not supported on an SMB/network share.
 
-Model and threshold data are intentionally not included. The worker fails
+Model and threshold data are intentionally not included. Schema-v1 manifests,
+caches, model packages, and cached results are rejected and must be rebuilt;
+existing external files are not migrated or deleted. The worker fails
 closed until a model package contains a verified ONNX hash, verified calibrator
 hash, preprocessing schema, extractor version, feature order, quantization
 mode, model version, and OOF-selected thresholds.
@@ -110,44 +116,57 @@ would unpack large native libraries for every capture-end enqueue call.
 
 ## Offline dataset and model tools
 
-Training code is under `fireball_edge.offline` and is not imported or packaged
-by the edge worker. Expert labels are CSV rows with:
+Training code is under `fireball_edge.offline`; Torch and torchvision remain
+outside the edge import path and PyInstaller package. Expert labels are CSV
+rows with:
 
 ```text
-clip_base,label,physical_event_id,station,camera,night,nuisance_tags
+clip_base,label,physical_event_id,nuisance_tags
 ```
 
-Labels must be `fireball` or `non_fireball`; nuisance tags are semicolon
-separated. Use tags such as `moon_only`, `fireball_with_moon`,
+Labels must be `fireball` or `non_fireball`, physical event IDs are mandatory,
+and nuisance tags are semicolon separated. Optional `station`, `camera`, and
+`night` columns are assertions against XML-derived values; they never override
+XML. Use tags such as `moon_only`, `fireball_with_moon`,
 `ordinary_meteor`, `aircraft`, `cloud_glare`, and `sensor_artifact`. Moon is a
 hard-negative/slice tag, never a rejection rule.
 
 The available commands keep outputs below external state:
 
 ```bash
-python -m fireball_edge.offline build-manifest --config edge.json --labels expert.csv --name v1
-python -m fireball_edge.offline split-manifest --config edge.json --manifest manifest.json --name v1 --locked-night 2026-09-01 --locked-camera CAM-NEW
+python -m fireball_edge.offline preflight --config edge.json --labels expert.csv --name dataset-v2
+python -m fireball_edge.offline train --config edge.json --labels expert.csv --name dataset-v2 --model-name model-v2 --locked-night 2026-09-01 --locked-camera PL:station:camera:lens --resume
+python -m fireball_edge.offline build-manifest --config edge.json --labels expert.csv --name dataset-v2
+python -m fireball_edge.offline split-manifest --config edge.json --manifest manifest-v2.json --name dataset-v2 --locked-night 2026-09-01 --locked-camera PL:station:camera:lens
 python -m fireball_edge.offline snapshot-sources --config edge.json --root D:\UFOCapture\captures --name before
-python -m fireball_edge.offline evaluate --config edge.json --oof oof.csv --locked locked.csv --name v1
+python -m fireball_edge.offline evaluate --config edge.json --oof oof.csv --locked locked.csv --name dataset-v2
 python -m fireball_edge.offline quantization-gate --fp32-recall 0.97 --int8-recall 0.96 --fp32-p95-ms 100 --int8-p95-ms 84
 ```
 
-The code provides ImageNet-pretrained MobileNetV3-Small construction, external
-multi-candidate ROI caches with a multi-instance event-label objective (so a
-Moon candidate cannot steal a positive event label), grouped fold assignment, OOF logistic calibration, fixed-shape ONNX
-export, and static QDQ INT8 generation with `QUInt8` activations, `QInt8`
+`train` performs strict preflight, immutable manifest creation, physical-event
+grouped folds, candidate ROI/geometry/temporal caching, fold training, grouped
+OOF prediction, event-maximum multi-instance calibration, threshold selection,
+final FP32 training, ONNX export, and locked-set evaluation. Defaults are five
+folds, 12 epochs, batch size 32, learning rate `3e-4`, deterministic seeding,
+and zero data-loader workers. It publishes a candidate package but never
+replaces the configured active model. Activation is eligible only when locked
+possible-fireball recall reaches 95%.
+
+Static QDQ INT8 generation remains a subsequent stage with `QUInt8` activations, `QInt8`
 weights, and reduced range. `ship_int8` is true only when locked recall falls no
 more than one percentage point and target-machine p95 latency improves by at
 least 15%.
 
 ## Verification and rollout status
 
-Automated tests use generated AVI, `M.bmp`, peak-hold, and XML artifacts. They
-cover red/green/blue channel interpretation, AVI fallback, missing sidecars,
+Automated tests use generated 1920x1080 AVI, P BMP/JPG stacks, colored `M.bmp`,
+and XML artifacts. They cover M corruption/removal invariance, AVI-only
+candidate and temporal semantics, BMP preference, JPG and runtime AVI-stack
+fallback, strict training preflight, missing sidecars,
 corrupt AVI retry-to-failed behavior, duplicate/concurrent enqueue, restart
 recovery, external atomic outputs, source snapshot equality, Telegram outage,
-manifest/hash rejection, grouped threshold selection, and a real two-thread CPU
-ONNX Runtime session.
+v1 manifest/cache/model/result rejection, grouped threshold selection,
+event-maximum calibration, and a real two-thread CPU ONNX Runtime session.
 
 Run:
 
@@ -159,7 +178,8 @@ These tests do not establish model quality or deployment readiness. The seven
 still images currently available are illustrative and are not used as accuracy
 evidence. Before operational rollout, all of the following remain required:
 
-- Full expert-labeled AVI/P/M/XML bundles grouped by physical event.
+- Full expert-labeled AVI/P/XML bundles (with optional M provenance) grouped by
+  physical event.
 - Grouped OOF selection: possible threshold at least 98% recall, no fold below
   95%; probable threshold by maximum F2.
 - A naturally imbalanced locked set of unseen nights/cameras with at least 95%
