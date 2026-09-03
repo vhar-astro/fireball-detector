@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from ..artifacts import write_json_atomic
+from ..contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
@@ -197,7 +198,8 @@ def write_quantization_report(
     return write_json_atomic(
         destination,
         {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
+            "candidate_extractor": CANDIDATE_EXTRACTOR,
             "target_cpu": target_cpu,
             "locked_predictions_sha256": locked_predictions_sha256,
             "fp32": {"recall": fp32_recall, "p95_ms": fp32_p95_ms},

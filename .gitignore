@@ -64,6 +64,9 @@ build/classify_sky_cpu/localpycs/pyimod02_importers.pyc
 build/classify_sky_cpu/localpycs/pyimod03_ctypes.pyc
 build/classify_sky_cpu/localpycs/struct.pyc
 dist/classify_sky_cpu
+build/fireball-edge/
+dist/fireball-edge/
+:memory:.ses
 classify_sky_cpu.spec
 .gemini/settings.json
 MeteorsStations/

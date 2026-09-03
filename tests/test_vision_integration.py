@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
@@ -33,15 +32,13 @@ from fireball_edge.worker import EdgeWorker
 from fireball_edge.vision import (
     CandidateRegion,
     InvalidMediaError,
-    candidate_from_change_map,
     extract_candidate,
     measure_temporal_features,
     prepare_roi,
-    read_peak_or_avi_frame,
+    read_stack_or_avi_composite,
     TemporalFeatures,
 )
 from fireball_edge.offline.model_tools import quantize_static_qdq, write_model_manifest
-from fireball_edge.offline.cache import build_roi_cache
 
 
 @unittest.skipIf(cv2 is None or np is None, "vision dependencies are not installed")
@@ -58,7 +55,9 @@ class VisionIntegrationTests(unittest.TestCase):
 
         def score(self, tensor, region, temporal, width, height):
             assert tensor.shape == (1, 3, 224, 224)
-            return 0.70, 1.25, {"roi_logit": 1.25}
+            roi_logit = float(tensor.mean())
+            score = max(0.5, min(0.9, 0.7 + roi_logit * 0.01))
+            return score, roi_logit, {"roi_logit": roi_logit}
 
         def decision(self, score: float) -> str:
             return "possible_fireball" if score >= 0.5 else "no_alert"
@@ -70,10 +69,13 @@ class VisionIntegrationTests(unittest.TestCase):
         self.source = self.root / "readonly-captures"
         self.source.mkdir()
         self.base = self.source / "M20260902_010203_CAM01"
+        self._process_count = 0
         self._write_bundle()
 
     def _write_bundle(self) -> None:
-        width, height = 96, 64
+        # Use the real UFOCapture HD geometry: this catches accidental
+        # coordinate/shape assumptions that tiny synthetic frames conceal.
+        width, height = 1920, 1080
         writer = cv2.VideoWriter(
             str(self.base.with_suffix(".avi")),
             cv2.VideoWriter_fourcc(*"MJPG"),
@@ -85,57 +87,73 @@ class VisionIntegrationTests(unittest.TestCase):
         peak = np.zeros((height, width, 3), dtype=np.uint8)
         for frame_index in range(8):
             frame = np.zeros_like(peak)
-            start_x = 16 + frame_index * 3
-            cv2.line(frame, (start_x, 30), (start_x + 18, 32), (255, 255, 255), 2)
+            start_x = 320 + frame_index * 30
+            cv2.line(frame, (start_x, 540), (start_x + 180, 560), (255, 255, 255), 4)
             peak = np.maximum(peak, frame)
             writer.write(frame)
         writer.release()
         self.assertTrue(cv2.imwrite(str(self.source / f"{self.base.name}P.bmp"), peak))
-        change_map = np.zeros_like(peak)
-        cv2.line(change_map, (14, 30), (58, 32), (0, 0, 255), 2)
-        self.assertTrue(cv2.imwrite(str(self.source / f"{self.base.name}M.bmp"), change_map))
-        self.base.with_suffix(".xml").write_text("<ufo><station>test</station></ufo>")
+        mask = np.zeros_like(peak)
+        cv2.line(mask, (300, 540), (800, 560), (0, 0, 255), 4)
+        self.assertTrue(cv2.imwrite(str(self.source / f"{self.base.name}M.bmp"), mask))
+        self.base.with_suffix(".xml").write_text(
+            '<ufocapture_record timestamp="2026-09-02T01:02:03.125" tz="10800" '
+            'width="1920" height="1080" fps="10" framecount="8" codec="MJPG" '
+            'droppedframes="0" countrycode="PL" lid="1" sid="2" cam="3" lens="4"/>'
+        )
 
-    def test_red_channel_candidate_temporal_features_and_letterbox(self) -> None:
+    def _process(self) -> dict[str, object]:
+        self._process_count += 1
+        state = self.root / f"external-state-{self._process_count}"
+        config = EdgeConfig(
+            state_root=state,
+            monitored_roots=(self.source,),
+            model_manifest=state / "models" / "active" / "model-manifest.json",
+        )
+        queue = EventQueue(state)
+        queue.enqueue(self.base)
+        claimed = queue.claim_next()
+        assert claimed is not None
+        return EventProcessor(config, model=self.FakeModel())(claimed)
+
+    def test_avi_candidate_temporal_features_and_stack_roi(self) -> None:
         bundle = discover_bundle(self.base)
         extraction = extract_candidate(bundle)
-        self.assertTrue(extraction.used_change_map)
-        self.assertEqual("change_map_red_channel", extraction.region.source)
+        self.assertEqual("avi_sequential_difference", extraction.region.source)
         self.assertGreater(extraction.region.changed_pixels, 12)
         temporal = measure_temporal_features(bundle.avi, extraction.region)
         self.assertEqual(8, temporal.frame_count)
         self.assertGreater(temporal.duration_seconds, 0)
         self.assertGreater(temporal.motion_pixels, 0)
-        image = read_peak_or_avi_frame(bundle)
-        tensor = prepare_roi(image, extraction.region)
+        stack = read_stack_or_avi_composite(bundle)
+        self.assertEqual(self.source / f"{self.base.name}P.bmp", stack.selected_path)
+        tensor = prepare_roi(stack.image, extraction.region)
         self.assertEqual((1, 3, 224, 224), tensor.shape)
         self.assertEqual(np.float32, tensor.dtype)
 
-    def test_blue_channel_is_not_mistaken_for_change(self) -> None:
-        blue_only = np.zeros((32, 32, 3), dtype=np.uint8)
-        cv2.line(blue_only, (2, 16), (28, 16), (255, 0, 0), 2)
-        path = self.root / "blue.bmp"
-        cv2.imwrite(str(path), blue_only)
-        with self.assertRaises(InvalidMediaError):
-            candidate_from_change_map(path)
+    def test_star_mask_change_corruption_and_removal_do_not_affect_scoring(self) -> None:
+        bundle = discover_bundle(self.base)
+        baseline_regions = tuple(region.as_dict() for region in extract_candidate(bundle).regions)
+        baseline_temporal = measure_temporal_features(bundle.avi, extract_candidate(bundle).region)
+        baseline = self._process()
 
-    def test_blue_mask_does_not_replace_green_background_channel(self) -> None:
-        mapped = np.zeros((32, 32, 3), dtype=np.uint8)
-        cv2.line(mapped, (2, 16), (28, 16), (255, 0, 255), 2)
-        path = self.root / "red-with-blue-mask.bmp"
-        cv2.imwrite(str(path), mapped)
-        self.assertGreater(candidate_from_change_map(path).changed_pixels, 12)
+        mask_path = self.source / f"{self.base.name}M.bmp"
+        mask_path.write_bytes(b"not an image")
+        corrupt_bundle = discover_bundle(self.base)
+        self.assertEqual(baseline_regions, tuple(region.as_dict() for region in extract_candidate(corrupt_bundle).regions))
+        self.assertEqual(baseline_temporal.as_dict(), measure_temporal_features(corrupt_bundle.avi, extract_candidate(corrupt_bundle).region).as_dict())
+        corrupt = self._process()
+        self.assertEqual(baseline["calibrated_score"], corrupt["calibrated_score"])
+        self.assertEqual(baseline["candidates"], corrupt["candidates"])
+        self.assertNotIn(str(mask_path), corrupt["scoring_sidecars"])
+        self.assertEqual("provenance_only", corrupt["star_mask_role"])
 
-    def test_green_background_is_measured_without_suppressing_red_detection(self) -> None:
-        mapped = np.zeros((32, 32, 3), dtype=np.uint8)
-        cv2.line(mapped, (2, 16), (28, 16), (0, 190, 200), 2)
-        path = self.root / "bright-background.bmp"
-        cv2.imwrite(str(path), mapped)
-        region = candidate_from_change_map(path)
-        self.assertGreater(region.map_background_brightness, 0)
-        self.assertGreater(region.map_brightness_above_background, 0)
+        mask_path.unlink()
+        missing_bundle = discover_bundle(self.base)
+        self.assertEqual(baseline_regions, tuple(region.as_dict() for region in extract_candidate(missing_bundle).regions))
+        self.assertEqual("absent", self._process()["star_mask_role"])
 
-    def test_static_bright_object_is_not_temporal_activity_without_map(self) -> None:
+    def test_static_bright_object_is_not_temporal_activity(self) -> None:
         path = self.root / "static-moon.avi"
         writer = cv2.VideoWriter(
             str(path), cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (64, 48)
@@ -151,80 +169,30 @@ class VisionIntegrationTests(unittest.TestCase):
         temporal = measure_temporal_features(path, region)
         self.assertEqual(0, temporal.active_frame_count)
 
-    def test_wrong_size_map_falls_back_to_streamed_avi_difference(self) -> None:
-        wrong = np.zeros((16, 16, 3), dtype=np.uint8)
-        wrong[:, :, 2] = 255
-        cv2.imwrite(str(self.source / f"{self.base.name}M.bmp"), wrong)
-        extraction = extract_candidate(discover_bundle(self.base))
-        self.assertFalse(extraction.used_change_map)
-        self.assertEqual("avi_frame_difference", extraction.region.source)
-        self.assertIn("do not match AVI", extraction.fallback_reason)
-
-    def test_missing_map_peak_and_xml_use_avi_without_inventing_provenance(self) -> None:
+    def test_missing_stack_uses_avi_composite_and_missing_xml_is_nonfatal(self) -> None:
         (self.source / f"{self.base.name}M.bmp").unlink()
         (self.source / f"{self.base.name}P.bmp").unlink()
         self.base.with_suffix(".xml").unlink()
         bundle = discover_bundle(self.base)
-        extraction = extract_candidate(bundle)
-        self.assertFalse(extraction.used_change_map)
-        self.assertEqual("change map is missing", extraction.fallback_reason)
-        self.assertEqual((64, 96), read_peak_or_avi_frame(bundle).shape[:2])
-
-        state = self.root / "external-state"
-        config = EdgeConfig(
-            state_root=state,
-            monitored_roots=(self.source,),
-            model_manifest=state / "models" / "active" / "model-manifest.json",
-        )
-        queue = EventQueue(state)
-        claimed = queue.claim_next()
-        if claimed is None:
-            queue.enqueue(self.base)
-            claimed = queue.claim_next()
-        result = EventProcessor(config, model=self.FakeModel())(claimed)
+        stack = read_stack_or_avi_composite(bundle)
+        self.assertIsNone(stack.selected_path)
+        self.assertEqual("avi_maximum_composite", stack.source)
+        self.assertEqual((1080, 1920), stack.image.shape[:2])
+        result = self._process()
         self.assertEqual("absent", result["xml_role"])
-        self.assertNotIn(".xml", " ".join(result["sidecars_used"]))
+        self.assertEqual("absent", result["xml_validation"])
+        self.assertEqual([str(bundle.avi)], result["scoring_sidecars"])
 
-    def test_wrong_size_peak_falls_back_to_streamed_maximum_composite(self) -> None:
-        wrong_peak = np.zeros((16, 16, 3), dtype=np.uint8)
-        cv2.imwrite(str(self.source / f"{self.base.name}P.bmp"), wrong_peak)
-        representative = read_peak_or_avi_frame(discover_bundle(self.base))
-        self.assertEqual((64, 96), representative.shape[:2])
-        self.assertGreater(int((representative > 0).any(axis=2).sum()), 40)
-
-    def test_positive_event_cache_retains_all_candidates_for_multi_instance_training(self) -> None:
-        mapped = np.zeros((64, 96, 3), dtype=np.uint8)
-        cv2.line(mapped, (8, 12), (30, 12), (0, 0, 255), 2)
-        cv2.line(mapped, (60, 48), (84, 48), (0, 0, 255), 2)
-        map_path = self.source / f"{self.base.name}M.bmp"
-        cv2.imwrite(str(map_path), mapped)
+    def test_bmp_is_preferred_and_jpg_is_fallback_after_bmp_corruption(self) -> None:
+        bmp_path = self.source / f"{self.base.name}P.bmp"
+        jpg_path = self.source / f"{self.base.name}P.jpg"
+        self.assertTrue(cv2.imwrite(str(jpg_path), np.full((1080, 1920, 3), 17, dtype=np.uint8)))
+        self.assertEqual(bmp_path, read_stack_or_avi_composite(discover_bundle(self.base)).selected_path)
+        bmp_path.write_bytes(b"corrupt bmp")
         bundle = discover_bundle(self.base)
-        before = snapshot_tree(self.source)
-        index_path = build_roi_cache(
-            [
-                {
-                    "event_id": "obs-test",
-                    "clip_base": str(bundle.clip_base),
-                    "physical_event_id": "physical-test",
-                    "station": "station",
-                    "camera": "camera",
-                    "night": "2026-09-02",
-                    "label": "fireball",
-                    "nuisance_tags": ["fireball_with_moon"],
-                    "partition": "fold_1",
-                    "avi": str(bundle.avi),
-                    "peak": str(bundle.peak),
-                    "change_map": str(bundle.change_map),
-                    "xml": str(bundle.xml),
-                }
-            ],
-            self.root / "external-cache",
-        )
-        with index_path.open("r", encoding="utf-8") as source:
-            cached = json.load(source)["records"][0]
-        self.assertGreaterEqual(len(cached["candidates"]), 2)
-        self.assertEqual("multi_instance_event_label", cached["training_objective"])
-        self.assertEqual([], compare_snapshots(before, snapshot_tree(self.source)))
+        self.assertEqual(jpg_path, read_stack_or_avi_composite(bundle).selected_path)
+        self.assertIn(str(bmp_path), bundle.source_files())
+        self.assertIn(str(jpg_path), bundle.source_files())
 
     def test_corrupt_avi_retries_then_fails_without_touching_source(self) -> None:
         self.base.with_suffix(".avi").write_bytes(b"not an AVI")
@@ -265,10 +233,17 @@ class VisionIntegrationTests(unittest.TestCase):
 
         self.assertEqual("possible_fireball", result["decision"])
         self.assertEqual("uncalibrated", result["scientific_status"])
-        self.assertEqual("provenance_only", result["xml_role"])
-        self.assertNotIn(str(self.base.with_suffix(".xml")), result["scoring_sidecars"])
+        self.assertEqual("validation_only", result["xml_role"])
+        self.assertEqual("valid", result["xml_validation"])
+        self.assertEqual("provenance_only", result["star_mask_role"])
+        self.assertEqual(
+            [str(self.base.with_suffix(".avi")), str(self.source / f"{self.base.name}P.bmp")],
+            result["scoring_sidecars"],
+        )
+        self.assertIn(str(self.source / f"{self.base.name}M.bmp"), result["source_provenance"])
+        self.assertNotIn(str(self.source / f"{self.base.name}M.bmp"), result["scoring_sidecars"])
         self.assertTrue(Path(result["annotated_image"]).is_file())
-        result_path = state / "results" / queued.event_id / "result.json"
+        result_path = state / "results" / "v2" / queued.event_id / "result.json"
         self.assertTrue(result_path.is_file())
         self.assertEqual([], compare_snapshots(before, snapshot_tree(self.source)))
 

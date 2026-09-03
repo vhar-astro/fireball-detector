@@ -9,6 +9,7 @@ from threading import Event, Thread
 from typing import Any
 
 from .config import EdgeConfig
+from .contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from .process_lock import process_lock
 from .queue import EventQueue, QueueEvent, WorkerAlreadyRunningError
 
@@ -97,10 +98,15 @@ class EdgeWorker:
                         notification_stop.wait(self.config.poll_interval_seconds)
 
             try:
+                rebuilt_results = self.queue.requeue_incompatible_results(
+                    required_schema_version=SCHEMA_VERSION,
+                    candidate_extractor=CANDIDATE_EXTRACTOR,
+                )
                 recovered_events = self.queue.recover_processing()
                 recovered_notifications = self.queue.recover_notifications()
                 LOGGER.info(
-                    "worker started recovered_events=%s recovered_notifications=%s",
+                    "worker started rebuilt_results=%s recovered_events=%s recovered_notifications=%s",
+                    rebuilt_results,
                     recovered_events,
                     recovered_notifications,
                 )

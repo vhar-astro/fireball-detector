@@ -74,6 +74,21 @@ class EventQueue:
                 );
                 CREATE INDEX IF NOT EXISTS events_claimable
                     ON events(state, created_at);
+                CREATE TABLE IF NOT EXISTS legacy_event_results (
+                    event_id TEXT NOT NULL,
+                    archived_at REAL NOT NULL,
+                    result_json TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    PRIMARY KEY(event_id, archived_at)
+                );
+                CREATE TABLE IF NOT EXISTS legacy_notification_outbox (
+                    event_id TEXT NOT NULL,
+                    destination TEXT NOT NULL,
+                    archived_at REAL NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    PRIMARY KEY(event_id, destination, archived_at)
+                );
                 CREATE TABLE IF NOT EXISTS notification_outbox (
                     event_id TEXT NOT NULL REFERENCES events(event_id),
                     destination TEXT NOT NULL,
@@ -125,8 +140,80 @@ class EventQueue:
             result=result,
         )
 
-    def enqueue(self, clip_base: str | Path) -> QueueEvent:
+    @staticmethod
+    def _result_is_compatible(
+        result_json: str | None,
+        schema_version: int,
+        candidate_extractor: str,
+    ) -> bool:
+        try:
+            document = json.loads(result_json) if result_json else None
+        except json.JSONDecodeError:
+            return False
+        return bool(
+            isinstance(document, dict)
+            and document.get("schema_version") == schema_version
+            and document.get("candidate_extractor") == candidate_extractor
+        )
+
+    @staticmethod
+    def _archive_and_requeue(
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        now: float,
+        reason: str,
+    ) -> None:
+        if row["result_json"]:
+            connection.execute(
+                """
+                INSERT INTO legacy_event_results(event_id, archived_at, result_json, reason)
+                VALUES (?, ?, ?, ?)
+                """,
+                (row["event_id"], now, row["result_json"], reason),
+            )
+        notification_rows = connection.execute(
+            "SELECT * FROM notification_outbox WHERE event_id = ?",
+            (row["event_id"],),
+        ).fetchall()
+        for notification in notification_rows:
+            connection.execute(
+                """
+                INSERT INTO legacy_notification_outbox(
+                    event_id, destination, archived_at, payload_json, reason
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    row["event_id"],
+                    notification["destination"],
+                    now,
+                    json.dumps(dict(notification), sort_keys=True, allow_nan=False),
+                    reason,
+                ),
+            )
+        connection.execute(
+            "DELETE FROM notification_outbox WHERE event_id = ?",
+            (row["event_id"],),
+        )
+        connection.execute(
+            """
+            UPDATE events
+            SET state = 'queued', attempts = 0, updated_at = ?, claimed_at = NULL,
+                next_attempt_at = 0, last_error = ?, result_json = NULL
+            WHERE event_id = ? AND state = 'complete'
+            """,
+            (now, reason, row["event_id"]),
+        )
+
+    def enqueue(
+        self,
+        clip_base: str | Path,
+        *,
+        required_schema_version: int | None = None,
+        candidate_extractor: str | None = None,
+    ) -> QueueEvent:
         """Insert a new event, or return the original event for duplicate calls."""
+        if (required_schema_version is None) != (candidate_extractor is None):
+            raise ValueError("result schema and candidate extractor must be supplied together")
         normalized = normalize_clip_base(clip_base)
         event_id = event_id_for_clip_base(normalized)
         now = time.time()
@@ -143,10 +230,57 @@ class EventQueue:
             row = connection.execute(
                 "SELECT * FROM events WHERE event_id = ?", (event_id,)
             ).fetchone()
+            if (
+                row is not None
+                and row["state"] == "complete"
+                and required_schema_version is not None
+                and candidate_extractor is not None
+                and not self._result_is_compatible(
+                    row["result_json"], required_schema_version, candidate_extractor
+                )
+            ):
+                self._archive_and_requeue(
+                    connection,
+                    row,
+                    now,
+                    "completed result is incompatible with the current v2 contract",
+                )
+                row = connection.execute(
+                    "SELECT * FROM events WHERE event_id = ?", (event_id,)
+                ).fetchone()
             connection.execute("COMMIT")
         event = self._event_from_row(row)
         assert event is not None
         return event
+
+    def requeue_incompatible_results(
+        self, *, required_schema_version: int, candidate_extractor: str
+    ) -> int:
+        """Archive complete legacy rows and make them claimable for a v2 rebuild."""
+
+        now = time.time()
+        count = 0
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT * FROM events WHERE state = 'complete'"
+            ).fetchall()
+            for index, row in enumerate(rows):
+                if self._result_is_compatible(
+                    row["result_json"], required_schema_version, candidate_extractor
+                ):
+                    continue
+                # Keep the composite primary key unique even on coarse clocks.
+                archived_at = now + index * 1e-6
+                self._archive_and_requeue(
+                    connection,
+                    row,
+                    archived_at,
+                    "completed result is incompatible with the current v2 contract",
+                )
+                count += 1
+            connection.execute("COMMIT")
+        return count
 
     def get(self, event_id: str) -> QueueEvent | None:
         with self._connect() as connection:

@@ -16,7 +16,7 @@ def assign_grouped_partitions(
     locked_nights: set[str],
     locked_cameras: set[str],
     fold_count: int = 5,
-    seed: str = "fireball-edge-v1",
+    seed: str = "fireball-edge-v2",
 ) -> list[dict[str, object]]:
     """Keep physical events together and preserve the locked-set prevalence."""
 

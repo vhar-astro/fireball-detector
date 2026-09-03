@@ -1,5 +1,5 @@
-"""Offline-only dataset, training, and validation tools.
+"""Dataset, preflight, training, and validation tools.
 
-Production modules never import this package, keeping Torch and training-only
-dependencies out of the Windows edge runtime.
+The runtime shares only the lightweight XML validation module. Torch and the
+training modules remain lazily imported and outside the Windows edge package.
 """

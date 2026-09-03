@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from .vision import CandidateRegion, TemporalFeatures
 
 
@@ -22,8 +23,6 @@ CALIBRATION_FEATURES = frozenset(
         "log_changed_pixels",
         "roi_area_fraction",
         "roi_aspect_ratio",
-        "map_background_brightness",
-        "map_brightness_above_background",
         "frame_count",
         "fps",
         "active_frame_count",
@@ -70,7 +69,7 @@ class ModelManifest:
         manifest_path = Path(path).expanduser().resolve(strict=True)
         with manifest_path.open("r", encoding="utf-8") as source:
             document = json.load(source)
-        if not isinstance(document, dict) or document.get("schema_version") != 1:
+        if not isinstance(document, dict) or document.get("schema_version") != SCHEMA_VERSION:
             raise ModelPackageError("unsupported or missing model manifest schema_version")
         try:
             model = document["model"]
@@ -146,7 +145,7 @@ class ModelManifest:
         for key, expected in expected_preprocessing.items():
             if preprocessing.get(key) != expected:
                 raise ModelPackageError(f"unsupported preprocessing value: {key}")
-        if document.get("candidate_extractor") != "change-map-red-v1-with-avi-fallback":
+        if document.get("candidate_extractor") != CANDIDATE_EXTRACTOR:
             raise ModelPackageError("candidate extractor version mismatch")
         if result.quantization not in {"fp32", "qdq_int8"}:
             raise ModelPackageError("unsupported quantization mode")
@@ -187,7 +186,8 @@ class ModelManifest:
                 with report_path.open("r", encoding="utf-8") as source:
                     report = json.load(source)
                 report_metrics_match = (
-                    report.get("schema_version") == 1
+                    report.get("schema_version") == SCHEMA_VERSION
+                    and report.get("candidate_extractor") == CANDIDATE_EXTRACTOR
                     and report.get("target_cpu") == target_cpu
                     and report.get("fp32", {}).get("recall") == fp32_recall
                     and report.get("fp32", {}).get("p95_ms") == fp32_p95
@@ -250,8 +250,6 @@ def calibration_features(
         "log_changed_pixels": math.log1p(region.changed_pixels),
         "roi_area_fraction": float(box_area / image_area),
         "roi_aspect_ratio": float(region.width / max(region.height, 1)),
-        "map_background_brightness": float(region.map_background_brightness),
-        "map_brightness_above_background": float(region.map_brightness_above_background),
         **{key: float(value) for key, value in temporal.as_dict().items()},
     }
 

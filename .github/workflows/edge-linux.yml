@@ -1,0 +1,32 @@
+name: UFOCapture edge Linux
+
+"on":
+  pull_request:
+    paths:
+      - "src/fireball_edge/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - "fireball-edge.spec"
+      - "fireball_edge_entry.py"
+      - ".github/workflows/edge-linux.yml"
+  workflow_dispatch:
+
+jobs:
+  test-train-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install runtime, training, and build dependencies
+        run: python -m pip install ".[training,build]"
+      - name: Run complete Linux suite
+        run: python -m unittest discover -s tests -v
+      - name: Verify source-tree immutability test explicitly
+        run: python -m unittest discover -s tests -p "test_vision_integration.py" -k end_to_end_pipeline_keeps_source_tree_byte_identical -v
+      - name: Build onedir application
+        run: python -m PyInstaller --clean --noconfirm fireball-edge.spec
+      - name: Smoke-test packaged CLI
+        run: ./dist/fireball-edge/fireball-edge --help

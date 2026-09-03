@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from .contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
+
 
 def _fsync_file(path: Path) -> None:
     # Windows' CRT rejects _commit (used by os.fsync) for read-only file
@@ -78,7 +80,7 @@ def read_committed_result(
             document = json.load(source)
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return None
-    if not isinstance(document, dict) or document.get("schema_version") != 1:
+    if not isinstance(document, dict) or document.get("schema_version") != SCHEMA_VERSION:
         return None
     if (
         document.get("event_id") != event_id
@@ -87,8 +89,7 @@ def read_committed_result(
         or document.get("model_sha256") != model_sha256
         or document.get("model_manifest_sha256") != model_manifest_sha256
         or document.get("source_identity") != source_identity
-        or document.get("candidate_extractor")
-        != "change-map-red-v1-with-avi-fallback"
+        or document.get("candidate_extractor") != CANDIDATE_EXTRACTOR
     ):
         return None
     annotation = document.get("annotated_image")

@@ -18,6 +18,7 @@ from fireball_edge import artifacts
 from fireball_edge.artifacts import read_committed_result, write_json_atomic
 from fireball_edge.__main__ import main
 from fireball_edge.bundles import discover_bundle
+from fireball_edge.contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from fireball_edge.config import EdgeConfig, StateRootError, load_config
 from fireball_edge.event_id import event_id_for_clip_base
 from fireball_edge.inference import (
@@ -55,8 +56,8 @@ class BundleTests(unittest.TestCase):
             bundle = discover_bundle(root / f"{base.name}P.BMP")
             self.assertEqual(base, bundle.clip_base)
             self.assertIsNotNone(bundle.avi)
-            self.assertIsNotNone(bundle.peak)
-            self.assertIsNotNone(bundle.change_map)
+            self.assertIsNotNone(bundle.stack_image)
+            self.assertIsNotNone(bundle.star_mask)
             self.assertIsNotNone(bundle.xml)
             ids = {
                 event_id_for_clip_base(base),
@@ -242,7 +243,7 @@ class ArtifactTests(unittest.TestCase):
             annotation.write_bytes(b"image")
             result_path = root / "result.json"
             document = {
-                "schema_version": 1,
+                "schema_version": SCHEMA_VERSION,
                 "event_id": "evt_1",
                 "clip_base": "/capture/event",
                 "model_version": "v1",
@@ -251,7 +252,7 @@ class ArtifactTests(unittest.TestCase):
                 "source_identity": {
                     "avi": {"path": "/capture/event.avi", "size": 1, "mtime_ns": 2}
                 },
-                "candidate_extractor": "change-map-red-v1-with-avi-fallback",
+                "candidate_extractor": CANDIDATE_EXTRACTOR,
                 "annotated_image": str(annotation),
             }
             write_json_atomic(result_path, document)
@@ -278,6 +279,97 @@ class ArtifactTests(unittest.TestCase):
                     source_identity=document["source_identity"],
                 )
             )
+
+    def test_v1_complete_queue_row_is_archived_requeued_and_not_overwritten(self) -> None:
+        for legacy_notification_state in ("pending", "sent"):
+            with self.subTest(legacy_notification_state=legacy_notification_state):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    state = root / "state"
+                    queue = EventQueue(state)
+                    clip_base = root / "captures" / "event"
+                    queued = queue.enqueue(clip_base)
+                    claimed = queue.claim_next()
+                    assert claimed is not None
+                    old_image = state / "results" / queued.event_id / "old.jpg"
+                    old_image.parent.mkdir(parents=True)
+                    old_image.write_bytes(b"legacy image")
+                    queue.complete(
+                        claimed.event_id,
+                        {"schema_version": 1, "candidate_extractor": "change-map-v1"},
+                        notification={
+                            "destination": "TEST_CHAT_ID",
+                            "image_path": str(old_image),
+                            "caption": "legacy caption",
+                        },
+                    )
+                    if legacy_notification_state == "sent":
+                        with queue._connect() as connection:
+                            connection.execute(
+                                "UPDATE notification_outbox SET state = 'sent' WHERE event_id = ?",
+                                (queued.event_id,),
+                            )
+                    legacy_result = state / "results" / queued.event_id / "result.json"
+                    legacy_result.write_text('{"schema_version": 1}', encoding="utf-8")
+
+                    rebuilt = queue.enqueue(
+                        clip_base,
+                        required_schema_version=SCHEMA_VERSION,
+                        candidate_extractor=CANDIDATE_EXTRACTOR,
+                    )
+                    self.assertEqual("queued", rebuilt.state)
+                    self.assertTrue(legacy_result.is_file())
+                    with queue._connect() as connection:
+                        archived = connection.execute(
+                            "SELECT result_json FROM legacy_event_results WHERE event_id = ?",
+                            (queued.event_id,),
+                        ).fetchone()
+                        archived_notification = connection.execute(
+                            """SELECT payload_json FROM legacy_notification_outbox
+                               WHERE event_id = ?""",
+                            (queued.event_id,),
+                        ).fetchone()
+                        self.assertIsNone(
+                            connection.execute(
+                                "SELECT 1 FROM notification_outbox WHERE event_id = ?",
+                                (queued.event_id,),
+                            ).fetchone()
+                        )
+                    self.assertIsNotNone(archived)
+                    self.assertIsNotNone(archived_notification)
+                    self.assertIn("legacy caption", archived_notification["payload_json"])
+
+                    new_image = state / "results" / "v2" / queued.event_id / "new.jpg"
+                    new_image.parent.mkdir(parents=True)
+                    new_image.write_bytes(b"v2 image")
+                    config = EdgeConfig(
+                        state_root=state,
+                        monitored_roots=(root / "captures",),
+                        telegram_enabled=True,
+                    )
+                    EdgeWorker(queue, config).run(
+                        lambda _: {
+                            "schema_version": SCHEMA_VERSION,
+                            "candidate_extractor": CANDIDATE_EXTRACTOR,
+                            "decision": "possible_fireball",
+                            "calibrated_score": 0.8,
+                            "annotated_image": str(new_image),
+                        },
+                        once=True,
+                    )
+                    final = queue.get(queued.event_id)
+                    assert final is not None and final.result is not None
+                    self.assertEqual(SCHEMA_VERSION, final.result["schema_version"])
+                    with queue._connect() as connection:
+                        live_notification = connection.execute(
+                            """SELECT image_path, caption, state FROM notification_outbox
+                               WHERE event_id = ?""",
+                            (queued.event_id,),
+                        ).fetchone()
+                    self.assertEqual(str(new_image), live_notification["image_path"])
+                    self.assertNotEqual("legacy caption", live_notification["caption"])
+                    self.assertEqual("pending", live_notification["state"])
+                    self.assertTrue(legacy_result.is_file())
 
 
 class NotificationTests(unittest.TestCase):
@@ -416,9 +508,13 @@ class OfflineValidationTests(unittest.TestCase):
                     label="fireball" if index % 2 else "non_fireball",
                     nuisance_tags=(),
                     avi=f"/source/e{index}.avi",
-                    peak=None,
-                    change_map=None,
-                    xml=None,
+                    stack_image=f"/source/e{index}P.bmp",
+                    star_mask=None,
+                    xml=f"/source/e{index}.xml",
+                    star_mask_role="provenance_only",
+                    xml_validation="valid",
+                    capture_metadata={},
+                    metadata_warnings=(),
                 )
             )
         assigned = assign_grouped_partitions(

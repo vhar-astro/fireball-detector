@@ -7,9 +7,10 @@ import math
 import statistics
 import time
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 from ..artifacts import write_json_atomic
+from ..contracts import CANDIDATE_EXTRACTOR, SCHEMA_VERSION
 from ..inference import CALIBRATION_FEATURES, sha256_file
 
 
@@ -27,14 +28,20 @@ def create_mobilenet_v3_small_binary():
     return model
 
 
-def export_onnx(checkpoint: str | Path, destination: str | Path, image_size: int = 224) -> Path:
+def export_onnx(
+    checkpoint: str | Path,
+    destination: str | Path,
+    image_size: int = 224,
+    *,
+    model_factory: Callable[[], Any] | None = None,
+) -> Path:
     """Export a fixed batch-1 graph so production preprocessing stays explicit."""
 
     try:
         import torch
     except ImportError as exc:  # pragma: no cover - training environment only
         raise RuntimeError("ONNX export requires torch") from exc
-    model = create_mobilenet_v3_small_binary()
+    model = (model_factory or create_mobilenet_v3_small_binary)()
     state = torch.load(checkpoint, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
     model.eval()
@@ -195,6 +202,85 @@ def fit_logistic_calibrator(
     return raw_intercept, raw_weights.tolist()
 
 
+def fit_event_max_logistic_calibrator(
+    event_matrices: Sequence[Sequence[Sequence[float]]],
+    labels: Sequence[int],
+    *,
+    iterations: int = 4000,
+    learning_rate: float = 0.02,
+    l2: float = 1e-4,
+) -> tuple[float, list[float]]:
+    """Fit a deterministic multi-instance calibrator on grouped OOF events.
+
+    The score of an event is the maximum calibrated candidate score, exactly
+    matching runtime.  Gradient updates therefore use the current winning
+    candidate for each event instead of incorrectly treating every ROI as an
+    independently labelled observation.
+    """
+
+    import numpy as np
+
+    if len(event_matrices) != len(labels) or not event_matrices:
+        raise ValueError("event matrices and labels have incompatible lengths")
+    arrays = [np.asarray(matrix, dtype=np.float64) for matrix in event_matrices]
+    if any(array.ndim != 2 or len(array) == 0 for array in arrays):
+        raise ValueError("every event must contain a non-empty candidate matrix")
+    feature_count = arrays[0].shape[1]
+    if feature_count == 0 or any(array.shape[1] != feature_count for array in arrays):
+        raise ValueError("candidate feature matrices have incompatible shapes")
+    y = np.asarray(labels, dtype=np.float64)
+    if set(y.tolist()) - {0.0, 1.0}:
+        raise ValueError("calibration labels must be binary")
+    all_candidates = np.concatenate(arrays, axis=0)
+    if not np.isfinite(all_candidates).all():
+        raise ValueError("calibration features must be finite")
+    means = all_candidates.mean(axis=0)
+    scales = all_candidates.std(axis=0)
+    scales[scales < 1e-9] = 1.0
+    normalized = [(array - means) / scales for array in arrays]
+    weights = np.zeros(feature_count, dtype=np.float64)
+    # roi_logit is always the first configured feature in the orchestrator.
+    # Seeding that direction avoids an arbitrary first-ROI tie for positives.
+    weights[0] = 1e-3
+    intercept = 0.0
+    for _ in range(iterations):
+        winners = []
+        logits = []
+        for candidates in normalized:
+            candidate_logits = candidates @ weights + intercept
+            winner = int(np.argmax(candidate_logits))
+            winners.append(candidates[winner])
+            logits.append(float(candidate_logits[winner]))
+        selected = np.stack(winners)
+        clipped = np.clip(np.asarray(logits), -40, 40)
+        probabilities = 1.0 / (1.0 + np.exp(-clipped))
+        error = probabilities - y
+        weights -= learning_rate * (selected.T @ error / len(y) + l2 * weights)
+        intercept -= learning_rate * float(error.mean())
+    raw_weights = weights / scales
+    raw_intercept = intercept - float((weights * means / scales).sum())
+    return raw_intercept, raw_weights.tolist()
+
+
+def event_max_score(
+    matrix: Sequence[Sequence[float]], intercept: float, coefficients: Sequence[float]
+) -> float:
+    """Return the runtime-equivalent maximum calibrated candidate probability."""
+
+    if not matrix:
+        raise ValueError("event has no candidates")
+    if any(len(row) != len(coefficients) for row in matrix):
+        raise ValueError("candidate features and coefficients have incompatible shapes")
+    best_logit = max(
+        intercept + sum(value * coefficient for value, coefficient in zip(row, coefficients, strict=True))
+        for row in matrix
+    )
+    if best_logit >= 0:
+        return 1.0 / (1.0 + math.exp(-best_logit))
+    exp = math.exp(best_logit)
+    return exp / (1.0 + exp)
+
+
 def write_model_manifest(
     destination: str | Path,
     *,
@@ -238,7 +324,7 @@ def write_model_manifest(
         json.dumps(calibration, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     document: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": SCHEMA_VERSION,
         "model_version": model_version,
         "model": {
             "file": model.name,
@@ -255,7 +341,7 @@ def write_model_manifest(
             "mean": [0.485, 0.456, 0.406],
             "std": [0.229, 0.224, 0.225],
         },
-        "candidate_extractor": "change-map-red-v1-with-avi-fallback",
+        "candidate_extractor": CANDIDATE_EXTRACTOR,
         "calibration": calibration,
         "thresholds": {
             "possible_fireball": possible_threshold,
