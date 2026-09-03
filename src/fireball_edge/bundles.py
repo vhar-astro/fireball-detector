@@ -86,15 +86,22 @@ def normalize_clip_base(value: str | Path) -> Path:
 def _case_insensitive_file(parent: Path, names: tuple[str, ...]) -> Path | None:
     """Resolve a known sidecar without recursively scanning the source tree."""
 
-    for name in names:
-        exact = parent / name
-        if exact.is_file():
-            return exact
     try:
-        wanted = {name.casefold() for name in names}
-        for child in parent.iterdir():
-            if child.is_file() and child.name.casefold() in wanted:
-                return child
+        children = [child for child in parent.iterdir() if child.is_file()]
+        # Check one requested role at a time so BMP-before-JPG priority is
+        # stable. Returning the directory entry (rather than a synthesized
+        # path) preserves the real filename spelling on case-insensitive Windows.
+        for name in names:
+            exact = next((child for child in children if child.name == name), None)
+            if exact is not None:
+                return exact
+            folded = name.casefold()
+            matched = next(
+                (child for child in children if child.name.casefold() == folded),
+                None,
+            )
+            if matched is not None:
+                return matched
     except (FileNotFoundError, PermissionError):
         return None
     return None
