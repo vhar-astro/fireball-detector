@@ -116,6 +116,19 @@ class VisionIntegrationTests(unittest.TestCase):
         assert claimed is not None
         return EventProcessor(config, model=self.FakeModel())(claimed)
 
+    def _assert_same_path(self, expected: str | Path, actual: str | Path) -> None:
+        self.assertTrue(
+            Path(expected).samefile(Path(actual)),
+            f"paths do not identify the same file: {expected!s} != {actual!s}",
+        )
+
+    def _assert_same_paths(
+        self, expected: list[str | Path], actual: list[str | Path]
+    ) -> None:
+        self.assertEqual(len(expected), len(actual))
+        for expected_path, actual_path in zip(expected, actual, strict=True):
+            self._assert_same_path(expected_path, actual_path)
+
     def test_avi_candidate_temporal_features_and_stack_roi(self) -> None:
         bundle = discover_bundle(self.base)
         extraction = extract_candidate(bundle)
@@ -126,7 +139,7 @@ class VisionIntegrationTests(unittest.TestCase):
         self.assertGreater(temporal.duration_seconds, 0)
         self.assertGreater(temporal.motion_pixels, 0)
         stack = read_stack_or_avi_composite(bundle)
-        self.assertEqual(self.source / f"{self.base.name}P.bmp", stack.selected_path)
+        self._assert_same_path(self.source / f"{self.base.name}P.bmp", stack.selected_path)
         tensor = prepare_roi(stack.image, extraction.region)
         self.assertEqual((1, 3, 224, 224), tensor.shape)
         self.assertEqual(np.float32, tensor.dtype)
@@ -145,7 +158,9 @@ class VisionIntegrationTests(unittest.TestCase):
         corrupt = self._process()
         self.assertEqual(baseline["calibrated_score"], corrupt["calibrated_score"])
         self.assertEqual(baseline["candidates"], corrupt["candidates"])
-        self.assertNotIn(str(mask_path), corrupt["scoring_sidecars"])
+        self.assertFalse(
+            any(mask_path.samefile(path) for path in corrupt["scoring_sidecars"])
+        )
         self.assertEqual("provenance_only", corrupt["star_mask_role"])
 
         mask_path.unlink()
@@ -181,18 +196,21 @@ class VisionIntegrationTests(unittest.TestCase):
         result = self._process()
         self.assertEqual("absent", result["xml_role"])
         self.assertEqual("absent", result["xml_validation"])
-        self.assertEqual([str(bundle.avi)], result["scoring_sidecars"])
+        self._assert_same_paths([bundle.avi], result["scoring_sidecars"])
 
     def test_bmp_is_preferred_and_jpg_is_fallback_after_bmp_corruption(self) -> None:
         bmp_path = self.source / f"{self.base.name}P.bmp"
         jpg_path = self.source / f"{self.base.name}P.jpg"
         self.assertTrue(cv2.imwrite(str(jpg_path), np.full((1080, 1920, 3), 17, dtype=np.uint8)))
-        self.assertEqual(bmp_path, read_stack_or_avi_composite(discover_bundle(self.base)).selected_path)
+        self._assert_same_path(
+            bmp_path,
+            read_stack_or_avi_composite(discover_bundle(self.base)).selected_path,
+        )
         bmp_path.write_bytes(b"corrupt bmp")
         bundle = discover_bundle(self.base)
-        self.assertEqual(jpg_path, read_stack_or_avi_composite(bundle).selected_path)
-        self.assertIn(str(bmp_path), bundle.source_files())
-        self.assertIn(str(jpg_path), bundle.source_files())
+        self._assert_same_path(jpg_path, read_stack_or_avi_composite(bundle).selected_path)
+        self.assertTrue(any(bmp_path.samefile(path) for path in bundle.source_files()))
+        self.assertTrue(any(jpg_path.samefile(path) for path in bundle.source_files()))
 
     def test_corrupt_avi_retries_then_fails_without_touching_source(self) -> None:
         self.base.with_suffix(".avi").write_bytes(b"not an AVI")
@@ -236,12 +254,17 @@ class VisionIntegrationTests(unittest.TestCase):
         self.assertEqual("validation_only", result["xml_role"])
         self.assertEqual("valid", result["xml_validation"])
         self.assertEqual("provenance_only", result["star_mask_role"])
-        self.assertEqual(
-            [str(self.base.with_suffix(".avi")), str(self.source / f"{self.base.name}P.bmp")],
+        self._assert_same_paths(
+            [self.base.with_suffix(".avi"), self.source / f"{self.base.name}P.bmp"],
             result["scoring_sidecars"],
         )
-        self.assertIn(str(self.source / f"{self.base.name}M.bmp"), result["source_provenance"])
-        self.assertNotIn(str(self.source / f"{self.base.name}M.bmp"), result["scoring_sidecars"])
+        mask_path = self.source / f"{self.base.name}M.bmp"
+        self.assertTrue(
+            any(mask_path.samefile(path) for path in result["source_provenance"])
+        )
+        self.assertFalse(
+            any(mask_path.samefile(path) for path in result["scoring_sidecars"])
+        )
         self.assertTrue(Path(result["annotated_image"]).is_file())
         result_path = state / "results" / "v2" / queued.event_id / "result.json"
         self.assertTrue(result_path.is_file())

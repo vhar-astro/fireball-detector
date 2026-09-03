@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import math
 import statistics
@@ -48,15 +50,21 @@ def export_onnx(
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     example = torch.zeros((1, 3, image_size, image_size), dtype=torch.float32)
-    torch.onnx.export(
-        model,
-        (example,),
-        str(destination),
-        input_names=["image"],
-        output_names=["logit"],
-        dynamo=True,
-        opset_version=18,
-    )
+    # PyTorch's exporter prints Unicode progress glyphs even when verbose is
+    # false. Redirect them so Windows services and cp1252 CI consoles cannot
+    # fail an otherwise valid export with UnicodeEncodeError.
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(
+        io.StringIO()
+    ):
+        torch.onnx.export(
+            model,
+            (example,),
+            str(destination),
+            input_names=["image"],
+            output_names=["logit"],
+            dynamo=True,
+            opset_version=18,
+        )
     return destination
 
 

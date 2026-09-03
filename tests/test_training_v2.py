@@ -303,7 +303,7 @@ class TrainingOrchestratorSmokeTests(unittest.TestCase):
                 seed=7,
                 model_factory=self._model_factory,
             )
-            self.assertEqual(report_path, resumed_report)
+            self.assertTrue(report_path.samefile(resumed_report))
             self.assertEqual(model_manifest_mtime, manifest.manifest_path.stat().st_mtime_ns)
 
 
